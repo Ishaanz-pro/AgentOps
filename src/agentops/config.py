@@ -23,7 +23,10 @@ class Settings(BaseSettings):
 
     google_api_key: SecretStr | None = Field(default=None, alias="GOOGLE_API_KEY")
     model: str = Field(default="gemini-2.5-flash", alias="AGENTOPS_MODEL")
-    embeddings: Literal["gemini", "local"] = Field(default="local", alias="AGENTOPS_EMBEDDINGS")
+    # "auto": Gemini when GOOGLE_API_KEY is set, otherwise the offline local embedder.
+    embeddings: Literal["auto", "gemini", "local"] = Field(default="auto", alias="AGENTOPS_EMBEDDINGS")
+    # "auto": real Gemini when a key is set, otherwise the offline MockLlm. "mock" forces the mock.
+    mode: Literal["auto", "gemini", "mock"] = Field(default="auto", alias="AGENTOPS_MODE")
     db_path: Path = Field(default=Path("data/agentops.db"), alias="AGENTOPS_DB_PATH")
     policy_dir: Path = Field(default=Path("data/policies"), alias="AGENTOPS_POLICY_DIR")
     index_dir: Path = Field(default=Path("data/index"), alias="AGENTOPS_INDEX_DIR")

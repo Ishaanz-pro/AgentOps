@@ -15,6 +15,18 @@ from agentops.auth import authenticate  # noqa: E402
 from seed import seed  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _restore_logging():
+    """configure_logging() replaces root handlers; undo that after every test."""
+    import logging
+
+    root = logging.getLogger()
+    saved, level = list(root.handlers), root.level
+    yield
+    root.handlers[:] = saved
+    root.setLevel(level)
+
+
 @pytest.fixture
 def db_path(tmp_path: Path) -> Path:
     path = tmp_path / "test.db"

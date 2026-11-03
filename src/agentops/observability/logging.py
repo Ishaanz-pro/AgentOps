@@ -66,12 +66,24 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, default=str)
 
 
+class _LiveStdoutHandler(logging.StreamHandler):
+    """StreamHandler that always writes to the *current* sys.stdout (survives stream swaps)."""
+
+    @property
+    def stream(self):  # type: ignore[override]
+        return sys.stdout
+
+    @stream.setter
+    def stream(self, value) -> None:  # ignore assignments from StreamHandler.__init__
+        pass
+
+
 def configure_logging(level: str = "INFO") -> None:
     root = logging.getLogger()
     root.setLevel(level.upper())
     for h in list(root.handlers):
         root.removeHandler(h)
-    handler = logging.StreamHandler(sys.stdout)
+    handler = _LiveStdoutHandler()
     handler.setFormatter(JsonFormatter())
     handler.addFilter(RedactionFilter())
     root.addHandler(handler)
