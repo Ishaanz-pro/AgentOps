@@ -127,8 +127,8 @@ deterministic checks (answer content, tools used, authorization decisions from t
 retrieved chunk, citation integrity). No LLM-as-judge. Output: `evals/results/results_<mode>.jsonl` and
 `summary_<mode>.md`, committed.
 
-**Latest offline run: 21/21 passed** (policy 5/5, order 5/5, unauthorized 3/3, injection 3/3, failure 5/5; p50 ≈ 24 ms,
-p95 ≈ 36 ms in-process). Injection cases run against a *compromised* mock that obeys injected text.
+**Latest offline run: 21/21 passed** (policy 5/5, order 5/5, unauthorized 3/3, injection 3/3, failure 5/5; p50 ≈ 26 ms,
+p95 ≈ 37 ms in-process). Injection cases run against a *compromised* mock that obeys injected text.
 
 **How we got there (the failures are the point):**
 
