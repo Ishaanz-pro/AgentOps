@@ -58,7 +58,13 @@ def evaluate(case: dict, result, trace, db_path: Path) -> tuple[dict[str, bool],
     tickets = list_tickets(db_path)
     doc_hits = sorted({cid.split("#")[0] for cid in trace.retrieval_sources})
 
-    checks: dict[str, bool] = {"status_ok": result.status == "ok"}
+    # Always-on: every policy reference in the answer must have been retrieved this turn.
+    checks: dict[str, bool] = {
+        "status_ok": result.status == "ok",
+        "citations_verified": result.unverified_citations == [],
+    }
+    if "retrieval_chunk" in c:
+        checks["retrieval_chunk"] = c["retrieval_chunk"] in trace.retrieval_sources
     if "answer_contains_all" in c:
         checks["answer_contains_all"] = all(x.lower() in low for x in c["answer_contains_all"])
     if "answer_contains_any" in c:

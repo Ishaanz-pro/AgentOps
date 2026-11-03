@@ -21,6 +21,7 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
 from agentops.agent.agent import build_agent
+from agentops.agent.citations import unverified_citations
 from agentops.auth import Principal
 from agentops.observability.logging import get_logger
 from agentops.observability.tracing import Trace, TraceStore, clear_trace, start_trace
@@ -41,6 +42,7 @@ class ChatResult:
     pending_confirmation: dict[str, Any] | None = None
     latency_ms: float | None = None
     error: str | None = None
+    unverified_citations: list[str] = field(default_factory=list)
 
 
 class AgentService:
@@ -73,10 +75,13 @@ class AgentService:
         sid = ""
         answer = ""
         retrieved: list[str] = []
+        retrieved_texts: list[str] = []
         error: str | None = None
         try:
             sid = await self._ensure_session(principal, session_id)
-            answer, retrieved = await asyncio.wait_for(self._run(principal, sid, message, trace), self.turn_timeout)
+            answer, retrieved, retrieved_texts = await asyncio.wait_for(
+                self._run(principal, sid, message, trace), self.turn_timeout
+            )
         except asyncio.TimeoutError:
             error = f"turn exceeded {self.turn_timeout}s"
             answer = "Sorry, that took too long. Please try again."
@@ -84,6 +89,12 @@ class AgentService:
             error = f"{type(exc).__name__}"
             log.exception("agent_turn_failed")
             answer = "Sorry, something went wrong while handling your request."
+
+        # Provenance check: the answer may only cite policy sections retrieved in this turn.
+        unverified = unverified_citations(answer, retrieved, retrieved_texts) if not error else []
+        if unverified:
+            trace.add_step("error", "unverified_citation", citations=unverified)
+            log.warning("unverified_citation", extra={"citations": unverified})
 
         trace.finish(error)
         self.traces.put(trace)
@@ -98,12 +109,14 @@ class AgentService:
             request_id=trace.request_id, trace_id=trace.trace_id, session_id=sid,
             status=trace.status, answer=answer, sources=cited,
             pending_confirmation=trace.pending_confirmation, latency_ms=trace.latency_ms, error=error,
+            unverified_citations=unverified,
         )
 
-    async def _run(self, principal: Principal, sid: str, message: str, trace: Trace) -> tuple[str, list[str]]:
+    async def _run(self, principal: Principal, sid: str, message: str, trace: Trace) -> tuple[str, list[str], list[str]]:
         content = types.Content(role="user", parts=[types.Part(text=message)])
         final_text = ""
         retrieved: list[str] = []
+        texts: list[str] = []
         async for event in self.runner.run_async(user_id=principal.user_id, session_id=sid, new_message=content):
             for fc in event.get_function_calls() or []:
                 trace.add_step("agent", "model_requested_tool", tool=fc.name, arg_keys=sorted((fc.args or {}).keys()))
@@ -112,6 +125,7 @@ class AgentService:
                 if fr.name == "search_policy_documents" and body.get("ok"):
                     for p in body["data"].get("passages", []):
                         retrieved.append(p["source"])
+                        texts.append(p["text"])
                         if p.get("instruction_like_content_detected"):
                             trace.add_step("agent", "untrusted_content_flagged", source=p["source"])
                             log.warning("injection_like_content_retrieved", extra={"source": p["source"]})
@@ -119,4 +133,4 @@ class AgentService:
                 final_text = "".join(p.text or "" for p in event.content.parts).strip()
         if not final_text:
             raise RuntimeError("agent produced no final response")
-        return final_text, retrieved
+        return final_text, retrieved, texts

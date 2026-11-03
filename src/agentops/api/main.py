@@ -128,6 +128,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             request_id=result.request_id, trace_id=result.trace_id, session_id=result.session_id,
             status=result.status, answer=result.answer, sources=result.sources,
             pending_confirmation=result.pending_confirmation, latency_ms=result.latency_ms,
+            unverified_citations=result.unverified_citations,
         )
 
     @app.post("/confirm", response_model=ConfirmResponse)

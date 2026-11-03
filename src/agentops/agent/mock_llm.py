@@ -26,6 +26,12 @@ _POLICY_WORDS = re.compile(
 )
 _TICKET_WORDS = re.compile(r"\b(ticket|raise an issue|open a case)\b", re.IGNORECASE)
 _INJECTED_ORDERS = ("ORD-2001", "ORD-4001")
+_STATUS_QUERY = {
+    "delivered": "refund eligibility window days after delivery",
+    "cancelled": "cancelled order refunded automatically",
+    "shipped": "refund shipped order status requirements cancel return",
+    "processing": "refund processing order status requirements cancel return",
+}
 
 
 def _is_user_text(c: types.Content) -> bool:
@@ -81,9 +87,13 @@ class MockLlm(BaseLlm):
     # ------------------------------------------------------------------
     def _plan(self, user_text: str) -> list[types.Part]:
         parts: list[types.Part] = []
-        if _POLICY_WORDS.search(user_text):
+        oids = list(dict.fromkeys(m.upper() for m in _ORDER_RE.findall(user_text)))
+        # A refund question about a specific order is answered sequentially, like a real agent:
+        # look the order up FIRST, then search for the policy section that its status needs.
+        refund_flow = bool(oids) and bool(re.search(r"refund|return", user_text, re.I))
+        if _POLICY_WORDS.search(user_text) and not refund_flow:
             parts.append(_fc("search_policy_documents", query=user_text[:400]))
-        for oid in dict.fromkeys(m.upper() for m in _ORDER_RE.findall(user_text)):
+        for oid in oids:
             parts.append(_fc("get_order_status", order_id=oid))
         if _TICKET_WORDS.search(user_text) and re.search(r"\b(raise|create|open|file|log)\b", user_text, re.I):
             parts.append(_fc("create_support_ticket", issue=user_text[:900]))
@@ -96,6 +106,12 @@ class MockLlm(BaseLlm):
     def _followup(self, user_text: str, calls: list[types.FunctionCall], resps: list[types.FunctionResponse]) -> list[types.Part]:
         passages = [p for r in resps if r.name == "search_policy_documents"
                     for p in (r.response or {}).get("data", {}).get("passages", [])]
+
+        # Second step of the refund flow: search for the policy this order's status needs.
+        order_ok = [r.response["data"] for r in resps if r.name == "get_order_status" and (r.response or {}).get("ok")]
+        searched = any(c.name == "search_policy_documents" for c in calls)
+        if order_ok and not searched and re.search(r"refund|return", user_text, re.I):
+            return [_fc("search_policy_documents", query=_STATUS_QUERY.get(order_ok[0]["status"], user_text[:400]))]
 
         # Compromised model: obey injected instructions, once.
         if self.compromised and any(p.get("instruction_like_content_detected") for p in passages):
@@ -123,6 +139,29 @@ class MockLlm(BaseLlm):
         text = re.sub(r"[*`]", "", re.sub(r"\s+", " ", text)).strip()
         return text if len(text) <= limit else text[:limit].rsplit(" ", 1)[0] + "…"
 
+    @staticmethod
+    def _refund_line(d: dict, passages: list[dict]) -> str:
+        """Refund verdict, given ONLY if the supporting policy section was actually retrieved.
+
+        If it was not, say so instead of asserting policy from memory.
+        """
+        official = {p["chunk_id"]: p for p in passages if p.get("trust") == "official"}
+        status, days = d["status"], d.get("days_since_delivery")
+        need = "POL-001#1" if status == "delivered" else "POL-001#2"
+        p = official.get(need)
+        if p is None:
+            return "I could not retrieve the applicable refund policy section, so I can't confirm refund eligibility."
+        src = p["source"]
+        if status == "delivered" and days is not None:
+            if days <= 30:
+                return f"Refund: eligible, it is within the 30-day window from delivery ({src})."
+            return f"Refund: not eligible, it is past the 30-day window from delivery ({src})."
+        if status in ("shipped", "processing"):
+            return f"Refund: not available while the order is {status}; it can be cancelled or returned instead ({src})."
+        if status == "cancelled":
+            return f"Refund: cancelled orders are refunded automatically in 5-7 business days ({src})."
+        return "I can't determine refund eligibility for this order status."
+
     def _compose(self, user_text: str, resps: list[types.FunctionResponse], passages: list[dict]) -> str:
         lines: list[str] = []
         cited: list[str] = []
@@ -139,18 +178,7 @@ class MockLlm(BaseLlm):
                         + " (order record)."
                     )
                     if re.search(r"refund|return", user_text, re.I):
-                        if d["status"] == "delivered" and d["days_since_delivery"] is not None:
-                            if d["days_since_delivery"] <= 30:
-                                lines.append("Refund: eligible, it is within the 30-day window from delivery (POL-001 §1. Eligibility window).")
-                            else:
-                                lines.append("Refund: not eligible, it is past the 30-day window from delivery (POL-001 §1. Eligibility window); warranty may apply (POL-004).")
-                            cited.append("POL-001 §1. Eligibility window")
-                        elif d["status"] in ("shipped", "processing"):
-                            lines.append(f"Refund: not available while the order is {d['status']}; it can be cancelled or returned instead (POL-001 §2, POL-002 §4).")
-                            cited.append("POL-001 §2. Order status requirements")
-                        elif d["status"] == "cancelled":
-                            lines.append("Refund: cancelled orders are refunded automatically in 5-7 business days (POL-001 §2).")
-                            cited.append("POL-001 §2. Order status requirements")
+                        lines.append(self._refund_line(d, passages))
                 else:
                     lines.append(f"I couldn't complete the order lookup: {body.get('error', {}).get('message', 'unknown error')}")
             elif r.name == "create_support_ticket":

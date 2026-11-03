@@ -19,6 +19,7 @@ class ChatResponse(BaseModel):
     sources: list[str]
     pending_confirmation: dict[str, Any] | None = None
     latency_ms: float | None = None
+    unverified_citations: list[str] = Field(default_factory=list)
 
 
 class ConfirmRequest(BaseModel):
