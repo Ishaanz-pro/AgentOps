@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     )
 
     google_api_key: SecretStr | None = Field(default=None, alias="GOOGLE_API_KEY")
-    model: str = Field(default="gemini-2.5-flash", alias="AGENTOPS_MODEL")
+    model: str = Field(default="gemini-3.5-flash", alias="AGENTOPS_MODEL")
     # "auto": Gemini when GOOGLE_API_KEY is set, otherwise the offline local embedder.
     embeddings: Literal["auto", "gemini", "local"] = Field(default="auto", alias="AGENTOPS_EMBEDDINGS")
     # "auto": real Gemini when a key is set, otherwise the offline MockLlm. "mock" forces the mock.
@@ -35,7 +35,11 @@ class Settings(BaseSettings):
 
     @property
     def has_api_key(self) -> bool:
-        return self.google_api_key is not None and bool(self.google_api_key.get_secret_value())
+        """True only for a real-looking key; the .env.example placeholder counts as 'no key'."""
+        if self.google_api_key is None:
+            return False
+        value = self.google_api_key.get_secret_value().strip()
+        return bool(value) and not value.lower().startswith("your-")
 
 
 @lru_cache

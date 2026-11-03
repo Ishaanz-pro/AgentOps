@@ -1,0 +1,17 @@
+# NOT run in the authoring environment (Docker was not installed there).
+# Usage:  cp .env.example .env   (optionally add GOOGLE_API_KEY)   then   docker compose up --build
+# Without a key the service runs in offline mock mode; /health reports which mode is active.
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - agentops-var:/app/var
+    restart: unless-stopped
+
+volumes:
+  agentops-var:
