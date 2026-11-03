@@ -77,12 +77,19 @@ class PolicyIndex:
             return built
 
     # ---- query --------------------------------------------------------
-    def search(self, query: str, k: int = 4) -> list[Hit]:
+    def search(self, query: str, k: int = 4, min_score: float | None = None) -> list[Hit]:
+        """Top-k hits at or above a relevance floor.
+
+        ``min_score`` defaults to the embedder's own calibrated floor. Returning
+        an empty list is the honest answer for out-of-scope queries: the agent
+        must say it found no policy rather than quote the "nearest" irrelevant text.
+        """
+        floor = getattr(self.embedder, "min_score", 0.0) if min_score is None else min_score
         q = self.embedder.embed_query(query).reshape(1, -1).astype(np.float32)
         scores, ids = self._index.search(q, min(k, len(self.chunks)))
         hits: list[Hit] = []
         for score, idx in zip(scores[0], ids[0]):
-            if idx < 0:
+            if idx < 0 or float(score) < floor:
                 continue
             hits.append(Hit(self.chunks[int(idx)], float(score)))
         return hits

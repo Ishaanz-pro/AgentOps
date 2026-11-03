@@ -106,6 +106,23 @@ class MockLlm(BaseLlm):
                 ]
         return [types.Part(text=self._compose(user_text, resps, passages))]
 
+    @staticmethod
+    def _best(user_text: str, official: list[dict], n: int) -> list[dict]:
+        from agentops.rag.embeddings import LocalHashEmbedder
+
+        def words(s: str) -> set[str]:
+            return {t for t in LocalHashEmbedder._tokens(s) if "_" not in t}
+
+        q = words(user_text)
+        return sorted(official, key=lambda p: (len(q & words(p["text"])), p["score"]), reverse=True)[:n]
+
+    @staticmethod
+    def _snippet(p: dict, limit: int = 240) -> str:
+        body = p["text"].split(">>>", 1)[-1].split("<<<END", 1)[0].strip().splitlines()
+        text = " ".join(body[1:] if len(body) > 1 else body)
+        text = re.sub(r"[*`]", "", re.sub(r"\s+", " ", text)).strip()
+        return text if len(text) <= limit else text[:limit].rsplit(" ", 1)[0] + "…"
+
     def _compose(self, user_text: str, resps: list[types.FunctionResponse], passages: list[dict]) -> str:
         lines: list[str] = []
         cited: list[str] = []
@@ -146,13 +163,14 @@ class MockLlm(BaseLlm):
                 lines.append(f"I couldn't search the policies: {body.get('error', {}).get('message')}")
 
         official = [p for p in passages if p.get("trust") == "official"]
-        if official and not any("Refund:" in l for l in lines):
-            top = official[0]
-            body_text = top["text"].split(">>>", 1)[-1].split("<<<END", 1)[0].strip().splitlines()
-            snippet = " ".join(body_text[1:3]).strip() if len(body_text) > 1 else body_text[0]
-            lines.append(f"{snippet} ({top['source']})")
-            cited.append(top["source"])
-        elif passages and not official:
+        asked_about_order = any(r.name == "get_order_status" for r in resps)
+        # A policy snippet is only added for pure policy questions; order answers stay about the order.
+        if official and not asked_about_order:
+            # Stand-in for an LLM reading all retrieved passages: quote the 2 that best match the question.
+            for p in self._best(user_text, official, n=2):
+                lines.append(f"{self._snippet(p)} ({p['source']})")
+                cited.append(p["source"])
+        elif passages and not official and not asked_about_order:
             lines.append("I only found unreviewed community content, which is not an official policy, so I can't rely on it.")
         elif not passages and any(r.name == "search_policy_documents" and (r.response or {}).get("ok") for r in resps):
             lines.append("I could not find an applicable policy for that.")

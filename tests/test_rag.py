@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from agentops.rag.chunker import load_policy_chunks
 from agentops.rag.embeddings import LocalHashEmbedder
 from agentops.rag.index import IndexMismatch, PolicyIndex
@@ -36,6 +38,36 @@ def test_search_retrieves_warranty_for_warranty_query(policy_dir):
     idx = PolicyIndex.build_from_dir(LocalHashEmbedder(), policy_dir)
     hits = idx.search("warranty coverage for electronics", k=3)
     assert hits[0].chunk.doc_id == "POL-004"
+
+
+IN_SCOPE = [
+    ("How many days do I have to request a refund after delivery?", "POL-001"),
+    ("What is the warranty period for electronics?", "POL-004"),
+    ("How long does it take for a refund to reach my account?", "POL-001"),
+    ("What is the per-diem limit for domestic travel expense reimbursement?", "POL-005"),
+    ("Within how many hours must I report a parcel shipped as delivered but not received?", "POL-002"),
+]
+OUT_OF_SCOPE = [
+    "What is the company's parental leave policy?",
+    "What's the weather in Mumbai today?",
+    "Give me a pizza recipe",
+    "Should I buy shares of Google",
+    "How many vacation days do I get each year?",
+]
+
+
+@pytest.mark.parametrize("query,doc", IN_SCOPE)
+def test_relevance_floor_keeps_in_scope_queries(policy_dir, query, doc):
+    idx = PolicyIndex.build_from_dir(LocalHashEmbedder(), policy_dir)
+    hits = idx.search(query, k=4)
+    assert any(h.chunk.doc_id == doc for h in hits), f"{doc} missing for: {query}"
+
+
+@pytest.mark.parametrize("query", OUT_OF_SCOPE)
+def test_relevance_floor_returns_nothing_for_out_of_scope(policy_dir, query):
+    # The honest answer to an out-of-scope question is "no policy found", not the nearest irrelevant text.
+    idx = PolicyIndex.build_from_dir(LocalHashEmbedder(), policy_dir)
+    assert idx.search(query, k=4) == []
 
 
 def test_index_save_load_roundtrip(policy_dir, tmp_path: Path):

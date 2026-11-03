@@ -35,17 +35,31 @@ def _normalise(vectors: np.ndarray) -> np.ndarray:
     return vectors / norms
 
 
-class LocalHashEmbedder:
-    name = "local-hash-v1"
+_STOPWORDS = frozenset(
+    """a an the of to in on at for from by with and or but if is are was were be been being do does did
+    i me my we our you your it its this that these those there their they them he she his her
+    how what when where which who whom why can could should would will shall may might must
+    have has had not no yes as so than then also any all each per via about after before within
+    into out up down over under again please tell us get""".split()
+)
 
-    def __init__(self, dim: int = 512):
+
+class LocalHashEmbedder:
+    name = "local-hash-v2"
+    # Minimum cosine score for a passage to count as relevant. Calibrated on this
+    # corpus + embedder only (see tests/test_rag.py::test_relevance_floor_*).
+    # Embedders with a different score scale must set their own value.
+    min_score = 0.2
+
+    def __init__(self, dim: int = 1024):
         self.dim = dim
 
     @staticmethod
     def _tokens(text: str) -> list[str]:
         toks = _TOKEN.findall(text.lower())
-        # crude plural/verb stripping so "refunds" ~ "refund"
+        # crude plural stripping so "refunds" ~ "refund"
         toks = [t[:-1] if len(t) > 4 and t.endswith("s") else t for t in toks]
+        toks = [t for t in toks if t not in _STOPWORDS and len(t) > 1]
         bigrams = [f"{a}_{b}" for a, b in zip(toks, toks[1:])]
         return toks + bigrams
 
@@ -68,6 +82,10 @@ class LocalHashEmbedder:
 
 class GeminiEmbedder:
     name = "gemini-embedding-001"
+    # UNCALIBRATED: no relevance floor is applied for Gemini embeddings because the
+    # score scale has not been measured here. Relevance is left to the model + prompt
+    # rule 1 until a threshold is calibrated against a live run.
+    min_score = 0.0
 
     def __init__(self, api_key: str, model: str = "gemini-embedding-001", dim: int = 768):
         from google import genai  # imported lazily so offline paths never need it
