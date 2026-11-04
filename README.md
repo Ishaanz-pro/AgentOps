@@ -15,6 +15,31 @@ what surrounds it: backend-enforced authorization, prompt-injection resistance, 
 > run against the deployment (see [Deploying on Google Cloud](#deploying-on-google-cloud) and
 > [What was and wasn't verified](#what-was-and-wasnt-verified)).
 
+## Results at a glance
+
+Live on Cloud Run with Gemini via Vertex AI, 2026-11-04 (one Free Trial project; the URL stops working when the trial ends).
+Screenshots and raw `/health` output: [docs/deployment-evidence.md](docs/deployment-evidence.md).
+
+| Question | Answer | Evidence |
+|---|---|---|
+| Does it run on Google Cloud, keyless? | Yes: Cloud Run, Vertex AI through a least-privilege service account, scale to zero, daily request cap | `/health` reports `vertex-ai` and `cloud-run:` ([evidence](docs/deployment-evidence.md)) |
+| Does authorization hold with a real model? | In the live eval every attempt to read another user's (or a missing) order was refused by the backend: ORD-2001, ORD-1001, ORD-9999, ORD-4001 | [live eval](evals/results/summary_gemini-vertex_2026-11-04.md), 4 recorded denials |
+| Does prompt injection work? | 3/3 injection cases passed, and offline a deliberately compromised model that obeys the injection is still stopped by the backend | live eval + `tests/` |
+| Can the agent act on its own? | No. The `no_ticket_created` check never failed, and a ticket or calendar event needs a separate human `POST /confirm` | tests + eval checks |
+| Does it answer well? | Policy questions 5/5 live. Overall **14/25** on the first live run: see below | [full table](evals/results/summary_gemini-vertex_2026-11-04.md) |
+
+**Why 14/25 is in the headline, not hidden.** The first live run showed the eval, not the security design, was the weak
+part: my checks were written against the offline mock's wording and demanded exact phrases ("permitted to view",
+"NOT created"). Gemini said the same thing in other words, so 7 of the 11 failures look like correct behaviour failing
+a brittle check, 1 is a retrieval expectation, and 2 are real misses (the model never called `schedule_followup`, and
+asked for a timezone instead of using the tool). One case, AUTHZ-02, tripped a "must not contain" check and has **not yet
+been inspected**, so I do not count it as passed or explain it away. This is one run with one sample per case, not an
+accuracy figure. Next: replace phrase checks with checks on structured facts the backend records (denied orders,
+pending confirmation kind), fix the two real misses, re-run live, and report both numbers.
+
+**What this repo is meant to show:** an agent designed on the assumption that the model can be wrong or hijacked, a
+deterministic eval that failed in public and said why, and a deployment whose claims are limited to what was run.
+
 ## The core journey
 
 An authenticated employee asks: *"Can order ORD-1001 be refunded, and what is its current delivery status?"*
