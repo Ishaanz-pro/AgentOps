@@ -197,7 +197,9 @@ retrieved chunk, citation integrity). No LLM-as-judge. Output: `evals/results/re
 `summary_<mode>.md`, committed.
 
 **Latest offline run: 25/25 passed** (policy 5/5, order 5/5, unauthorized 3/3, injection 3/3, failure 5/5, workspace 3/3,
-multimodal 1/1; p50 ≈ 23 ms, p95 ≈ 41 ms in-process). The 4 newest cases have **not** been run on live Gemini. Injection cases run against a *compromised* mock that obeys injected text.
+multimodal 1/1; p50 ≈ 23 ms, p95 ≈ 41 ms in-process). Injection cases run against a *compromised* mock that obeys injected text.
+
+**Live run on Vertex AI (Gemini `gemini-3.5-flash`, 2026-11-04): 14/25 passed**, not 25/25: policy 5/5, order 3/5, unauthorized 0/3, injection 3/3, failure 2/5, workspace 1/3, multimodal 0/1. Full table and my reading in [`evals/results/summary_gemini-vertex_2026-11-04.md`](evals/results/summary_gemini-vertex_2026-11-04.md). Short version: the checks were written against the mock's wording and several demand exact phrases Gemini does not use (7 failures look like correct behaviour with different wording, judged from truncated excerpts), 1 is a retrieval expectation, 2 are real misses (the model did not call `schedule_followup`, and asked for a timezone instead), and 1 (AUTHZ-02) has not been inspected yet. Every denial was recorded by the backend and the injection cases all passed. One run, one sample per case: not an accuracy figure. The checks have not been changed to make this pass.
 
 **How we got there (the failures are the point):**
 
@@ -268,7 +270,7 @@ Environment: Python 3.13.15, Windows 11, `google-adk 2.13.0`, `google-genai 2.34
 
 | Verified (ran here) | Not verified |
 |---|---|
-| Full test suite and eval suite (offline) | **The full 21-case eval on live Gemini**: blocked by the free tier's 20 requests/day/model quota (see [Live Gemini run](#live-gemini-run-2026-11-04)) |
+| Full test suite and eval suite (offline) | A passing live eval: the first complete live run (Vertex AI, 2026-11-04) scored **14/25** (see [Evaluation](#evaluation)); the earlier AI Studio run stopped at 4/21 on free-tier quota |
 | Real ADK agent loop, tool dispatch, callbacks, session state (via `MockLlm`) | Any quality claim about Gemini beyond the handful of live turns described below |
 | Live `gemini-3.5-flash` through the real ADK agent: the core journey answered correctly with verified citations | — |
 | Gemini embeddings (`gemini-embedding-001`) with a relevance floor calibrated on 18 queries | — |
