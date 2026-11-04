@@ -166,9 +166,12 @@ def test_ui_page_is_served_with_strict_csp(client):
     assert "default-src 'none'" in csp and "connect-src 'self'" in csp and "frame-ancestors 'none'" in csp
     assert r.headers["x-content-type-options"] == "nosniff"
     html = r.text
-    assert "Enterprise AgentOps" in html
-    # no external resources, and model/document text is never injected as HTML
-    assert "http://" not in html and "https://" not in html
+    assert "AgentOps" in html and "Employee Assistant" in html
+    # the only external hosts are Google Fonts; model/document text is never injected as HTML
+    import re
+
+    hosts = set(re.findall(r"https?://([A-Za-z0-9.-]+)", html)) - {"www.w3.org"}
+    assert hosts <= {"fonts.googleapis.com", "fonts.gstatic.com"}, hosts
     assert "innerHTML" not in html and "document.write" not in html and "eval(" not in html
 
 

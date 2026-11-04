@@ -80,22 +80,34 @@ Docker (`Dockerfile`, `docker-compose.yml`) is provided but was **not built or r
 
 ### Web UI
 
-Start the server (command above) and open **http://127.0.0.1:8765/**. One self-contained page (no build step, no
-external requests), styled after Google's Material 3 / Gemini look:
+Start the server (command above) and open **http://127.0.0.1:8765/**. A single page served by FastAPI, no build
+step, built to Material 3 conventions rather than a chatbot template:
 
-- Gemini-style home with a greeting and six scenario cards (own order, someone else's order, poisoned document,
-  hostile message, ticket, out-of-scope question).
-- A user menu to switch between Alice, Bob, Carol (support agent) and Dan (admin); switching starts a new chat.
-- A live **agent trace** panel: latency / tools / passages / denied tiles, then a timeline of retrieval hits,
-  **access granted / denied** decisions, flagged untrusted content and tool results, plus the raw trace JSON.
-- Ticket proposals show a **Confirm** card; nothing is created until you click it.
-- A badge states whether the server is on the offline mock model or live Gemini.
-- Light, dark and system themes; responsive layout (chat and trace become tabs on narrow screens);
-  keyboard accessible; honours `prefers-reduced-motion`.
+- **Top app bar** with product name, a live/mock status chip (so mock answers can never pass as Gemini), new chat,
+  theme (system / light / dark), and a demo-user menu (Alice, Bob, Carol the support agent, Dan the admin).
+- **Conversation**: greeting, suggestion pills, and a "Security scenarios" list (someone else's order, poisoned
+  document, hostile message, ticket, out-of-scope). Answers render Gemini's markdown (headings, lists, tables,
+  code) through a small sanitising renderer that builds DOM nodes; no HTML is ever parsed from model or document
+  text. Each answer shows latency, tool-call count, citation chips, and a **Citations verified** mark (or the
+  unverified ones).
+- **Inspector** panel with Timeline / Tools / Raw tabs: status, request and trace IDs, then every step: model tool
+  requests, retrieval hits with scores (flagged passages highlighted), **access granted / denied** with the
+  reason, untrusted-content warnings, tool outcomes. On phones it opens as a sheet from "View trace".
+- **Ticket proposals** appear as a card with Confirm / Dismiss; nothing is filed until Confirm.
+- Only external requests: Roboto and Roboto Mono from Google Fonts (falls back to system fonts). Strict CSP.
 
-Model and document text is rendered with `textContent` (never as HTML) under a strict Content-Security-Policy.
-The page is checked over HTTP in `tests/test_api.py` and its script passes `node --check`, but it has not been
-exercised in an automated browser run.
+| Answer with inspector | Denied access + flagged injection |
+|---|---|
+| ![Answer with trace](docs/screenshots/answer-with-trace.png) | ![Denied and flagged](docs/screenshots/denied-and-flagged.png) |
+
+| Ticket needs human confirmation | Phone: inspector sheet |
+|---|---|
+| ![Ticket confirmation](docs/screenshots/ticket-confirmation.png) | ![Mobile inspector](docs/screenshots/mobile-inspector.png) |
+
+Screenshots were taken against the offline mock server (hence the "Offline mock model" chip) by driving the page
+in headless Chrome over the DevTools protocol: empty state, answer with trace, denied access, flagged injection,
+ticket card, a markdown-formatted answer ([sample](docs/screenshots/markdown-answer.png)), dark theme, and the
+phone layout (390 px) including the inspector sheet.
 
 ### API
 

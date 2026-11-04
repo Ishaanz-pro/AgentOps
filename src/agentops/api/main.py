@@ -38,9 +38,11 @@ log = get_logger("agentops.api")
 
 _INDEX_HTML = Path(__file__).parent / "static" / "index.html"
 # The UI is a single self-contained page: no external scripts, styles, fonts or images.
+# The only external resources are Roboto / Roboto Mono from Google Fonts (optional: falls back to system fonts).
 _UI_CSP = (
-    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
-    "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; "
+    "font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data:; "
+    "base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 )
 
 
