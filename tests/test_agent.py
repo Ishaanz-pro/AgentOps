@@ -147,3 +147,20 @@ def test_live_model_is_built_with_transient_retries():
     assert isinstance(m, Gemini) and m.model == "gemini-3.5-flash"
     assert m.retry_options.attempts >= 3
     assert {429, 503} <= set(m.retry_options.http_status_codes)
+
+
+def test_model_errors_are_classified_without_leaking_internals():
+    from agentops.agent.runner import classify_model_error
+
+    class Quota(Exception):
+        code = 429
+
+    code, msg = classify_model_error(Quota("429 RESOURCE_EXHAUSTED secret-internal-detail"))
+    assert code == "rate_limited" and "quota" in msg.lower() and "secret" not in msg
+
+    class Down(Exception):
+        code = 503
+
+    assert classify_model_error(Down("UNAVAILABLE"))[0] == "model_unavailable"
+    code, msg = classify_model_error(RuntimeError("boom"))
+    assert code == "RuntimeError" and "boom" not in msg

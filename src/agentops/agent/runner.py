@@ -45,6 +45,25 @@ class ChatResult:
     unverified_citations: list[str] = field(default_factory=list)
 
 
+def classify_model_error(exc: BaseException) -> tuple[str, str]:
+    """Map a failed turn to (error_code, user-facing message) without leaking internals.
+
+    Rate limits and upstream outages are distinct, expected conditions in a live
+    system and must not be reported as a generic failure.
+    """
+    code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    name = type(exc).__name__
+    text = str(exc)
+    if code == 429 or "RESOURCE_EXHAUSTED" in text or "ResourceExhausted" in name:
+        return "rate_limited", (
+            "The AI model's request quota is exhausted right now (rate limit). "
+            "Nothing was looked up or changed. Please try again in a minute."
+        )
+    if code in (500, 502, 503, 504) or "UNAVAILABLE" in text:
+        return "model_unavailable", "The AI model service is temporarily unavailable. Please try again shortly."
+    return name, "Sorry, something went wrong while handling your request."
+
+
 class AgentService:
     def __init__(self, model: str | BaseLlm, traces: TraceStore, turn_timeout: float = 60.0):
         self.traces = traces
@@ -86,9 +105,8 @@ class AgentService:
             error = f"turn exceeded {self.turn_timeout}s"
             answer = "Sorry, that took too long. Please try again."
         except Exception as exc:  # noqa: BLE001 - surface a safe message, keep detail in trace/logs
-            error = f"{type(exc).__name__}"
-            log.exception("agent_turn_failed")
-            answer = "Sorry, something went wrong while handling your request."
+            error, answer = classify_model_error(exc)
+            log.exception("agent_turn_failed", extra={"error": error})
 
         # Provenance check: the answer may only cite policy sections retrieved in this turn.
         unverified = unverified_citations(answer, retrieved, retrieved_texts) if not error else []

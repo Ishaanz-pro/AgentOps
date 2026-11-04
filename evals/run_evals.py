@@ -106,11 +106,13 @@ def evaluate(case: dict, result, trace, db_path: Path) -> tuple[dict[str, bool],
         "tickets_in_db": len(tickets),
         "pending_confirmation": bool(result.pending_confirmation),
         "latency_ms": result.latency_ms,
+        "error": result.error,
+        "unverified_citations": result.unverified_citations,
     }
     return checks, actual
 
 
-async def run(mode: str, out_dir: Path) -> int:
+async def run(mode: str, out_dir: Path, pace_s: float = 0.0) -> int:
     configure_logging("CRITICAL")  # keep eval output readable; traces hold the detail
     settings = Settings()
     has_key = settings.has_api_key
@@ -148,6 +150,10 @@ async def run(mode: str, out_dir: Path) -> int:
 
         result = await service.chat(principal, case["question"])
         trace = traces.get(result.request_id)
+        print(f"  {case['id']:9s} {'ok ' if result.status == 'ok' else 'ERR'} {result.error or ''} "
+              f"{(result.latency_ms or 0) / 1000:.1f}s", file=sys.stderr, flush=True)
+        if pace_s and mode == "gemini":
+            await asyncio.sleep(pace_s)  # stay under free-tier requests-per-minute
         checks, actual = evaluate(case, result, trace, db_path)
         rows.append(
             {
@@ -223,5 +229,6 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=["mock", "gemini"], default="mock")
     ap.add_argument("--out", type=Path, default=ROOT / "evals" / "results")
+    ap.add_argument("--pace", type=float, default=0.0, help="seconds to sleep between cases (gemini mode)")
     args = ap.parse_args()
-    sys.exit(asyncio.run(run(args.mode, args.out)))
+    sys.exit(asyncio.run(run(args.mode, args.out, args.pace)))
