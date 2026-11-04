@@ -7,11 +7,13 @@ accepts **photos** (multimodal): a damage photo is described by Gemini and bound
 backend. The focus is not the chatbot; it is
 what surrounds it: backend-enforced authorization, prompt-injection resistance, evaluation, and observability.
 
-> **Scope and honesty.** This is a portfolio project on **synthetic data**. It is not production-ready. As of
-> this commit it has **not been deployed to Google Cloud** and has **not been registered in Gemini Enterprise**:
-> the deploy scripts, Terraform and Agent Engine package exist, but nobody has run them yet (see
-> [Deploying on Google Cloud](#deploying-on-google-cloud) and [What was and wasn't verified](#what-was-and-wasnt-verified)).
-> Update this note with the live URL once a deployment exists.
+> **Scope and honesty.** This is a portfolio project on **synthetic data**. It is not production-ready.
+> It **was deployed to Cloud Run on 2026-11-04** (Vertex AI, keyless, one instance, scale to zero, daily request cap),
+> on a Free Trial project that will stop working when the trial ends. Evidence captured from the live service:
+> [docs/deployment-evidence.md](docs/deployment-evidence.md). It has **not** been registered in Gemini Enterprise, and
+> the Agent Engine package, Terraform and real Calendar writes have **not** been run. The 25-case eval has not been
+> run against the deployment (see [Deploying on Google Cloud](#deploying-on-google-cloud) and
+> [What was and wasn't verified](#what-was-and-wasnt-verified)).
 
 ## The core journey
 
@@ -273,7 +275,8 @@ Environment: Python 3.13.15, Windows 11, `google-adk 2.13.0`, `google-genai 2.34
 | Live uvicorn server + `scripts/demo.py` over HTTP | Docker build and `docker compose up` (Docker not installed) |
 | Photo and calendar flows in a real browser (headless Chrome, mock model) | Calendar flow and the 4 new eval cases on live Gemini |
 | One live Gemini photo turn (2026-11-04, `gemini-3.5-flash`, AI Studio key): described the synthetic cracked headband correctly, proposed the ticket, backend bound the image (17 s) | More than that one turn; no accuracy claim on real product photos |
-| Agent Engine package loads and serves under ADK `api_server` locally | `adk deploy agent_engine`, Cloud Run deploy, Terraform, Gemini Enterprise registration: **never run** |
+| Agent Engine package loads and serves under ADK `api_server` locally | `adk deploy agent_engine`, Terraform, Gemini Enterprise registration: **never run** |
+| Cloud Run deployment (2026-11-04): Dockerfile built by Cloud Build, `/health` reports `vertex-ai` and `cloud-run:` runtime, one authorized and one denied request answered correctly ([evidence](docs/deployment-evidence.md)) | The 25-case eval against the deployment, steady-state latency (first request took 48 s), `docker compose up`, any load or availability claim |
 | Calendar client request mapping and error handling against a stubbed HTTP session | A real write to a real Google Calendar |
 | Authorization, injection, confirmation, redaction behavior | Concurrency, load, any production deployment |
 

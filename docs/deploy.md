@@ -153,9 +153,9 @@ Fill this in with real outputs. Leave a line blank if you did not do it.
 
 | Step | Date | Result / URL |
 |---|---|---|
-| Free Trial started | | |
-| Cloud Run deploy | | |
-| `/health` shows backend vertex-ai, runtime cloud-run | | |
-| `cloud_evidence.py` run | | |
+| Free Trial started | before 2026-11-04 | project `agentops-demo-iz7` |
+| Cloud Run deploy | 2026-11-04 | `https://agentops-72n3irkweq-el.a.run.app` (region asia-south1, revision `agentops-00001-mwh`) |
+| `/health` shows backend vertex-ai, runtime cloud-run | 2026-11-04 | yes, see `docs/deployment-evidence.md` |
+| `cloud_evidence.py` run | 2026-11-04 17:41 UTC | first request took 48 s (cold start, not profiled) |
 | Live eval on Vertex AI | | |
 | Credit used after tests (Billing > Reports) | | |
