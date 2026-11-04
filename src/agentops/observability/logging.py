@@ -17,7 +17,8 @@ from typing import Any
 from agentops.observability.tracing import get_trace
 
 _REDACT_PATTERNS = [
-    re.compile(r"AIza[0-9A-Za-z_\-]{20,}"),         # Google API keys
+    re.compile(r"AIza[0-9A-Za-z_\-]{20,}"),         # Google API keys (AI Studio format)
+    re.compile(r"\bAQ\.[0-9A-Za-z_\-]{20,}"),       # Google API keys (newer "AQ." format)
     re.compile(r"\btok-[a-z0-9]+\b"),               # demo bearer tokens
     re.compile(r"(?i)bearer\s+[A-Za-z0-9_\-\.]+"),  # Authorization headers
 ]

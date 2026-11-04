@@ -17,6 +17,7 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 
+from agentops.agent.agent import make_gemini_model
 from agentops.agent.mock_llm import MockLlm
 from agentops.agent.runner import AgentService
 from agentops.api.schemas import (
@@ -94,7 +95,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         set_deps(deps)
 
         traces = TraceStore()
-        model = settings.model if mode == "gemini" else MockLlm()
+        model = make_gemini_model(settings.model) if mode == "gemini" else MockLlm()
         app.state.service = AgentService(model, traces)
         app.state.deps = deps
         app.state.traces = traces

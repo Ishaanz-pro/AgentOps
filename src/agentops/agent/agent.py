@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from google.adk.agents import LlmAgent
-from google.adk.models import BaseLlm
+from google.adk.models import BaseLlm, Gemini
 from google.adk.tools import BaseTool, ToolContext
 from google.genai import types
 
@@ -61,6 +61,22 @@ def _allowlist_guard(tool: BaseTool, args: dict[str, Any], tool_context: ToolCon
         log.warning("blocked_tool_call", extra={"tool": tool.name})
         return {"ok": False, "error": {"code": "tool_not_allowed", "message": f"Tool {tool.name} is not permitted."}}
     return None
+
+
+def make_gemini_model(model_name: str) -> Gemini:
+    """Live Gemini model with retries on transient failures.
+
+    ADK's Gemini wrapper does not retry by default; a single 503 ("high demand")
+    would otherwise fail the whole turn. Observed 2026-11-04: ~1 in 4 calls to
+    gemini-3.5-flash returned 503 and succeeded on retry.
+    """
+    return Gemini(
+        model=model_name,
+        retry_options=types.HttpRetryOptions(
+            attempts=4, initial_delay=1.0, max_delay=8.0, exp_base=2.0, jitter=0.2,
+            http_status_codes=[429, 500, 502, 503, 504],
+        ),
+    )
 
 
 def build_agent(model: str | BaseLlm) -> LlmAgent:

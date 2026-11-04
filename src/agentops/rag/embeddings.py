@@ -82,10 +82,12 @@ class LocalHashEmbedder:
 
 class GeminiEmbedder:
     name = "gemini-embedding-001"
-    # UNCALIBRATED: no relevance floor is applied for Gemini embeddings because the
-    # score scale has not been measured here. Relevance is left to the model + prompt
-    # rule 1 until a threshold is calibrated against a live run.
-    min_score = 0.0
+    # Calibrated 2026-11-04 on this corpus with gemini-embedding-001 @768 dims:
+    # 10 in-scope queries scored 0.702-0.792 (top-1); 8 out-of-scope queries
+    # (weather, recipes, stocks, parental leave, salary...) scored 0.514-0.584.
+    # 0.65 sits between with ~0.05 margin each side. Small sample: regression-
+    # tested in evals, not statistically validated.
+    min_score = 0.65
 
     def __init__(self, api_key: str, model: str = "gemini-embedding-001", dim: int = 768):
         from google import genai  # imported lazily so offline paths never need it

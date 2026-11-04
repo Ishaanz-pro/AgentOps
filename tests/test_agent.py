@@ -135,3 +135,15 @@ async def test_injection_even_blocked_for_admin_role_boundaries(compromised_serv
     assert allowed == {"ORD-2001"}   # his own order is legitimately visible to him
     assert denied == {"ORD-4001"}    # Dan's is not
     assert list_tickets(db_path) == []
+
+
+def test_live_model_is_built_with_transient_retries():
+    # No network: only checks the wrapper is configured to survive 503/429 spikes.
+    from google.adk.models import Gemini
+
+    from agentops.agent.agent import make_gemini_model
+
+    m = make_gemini_model("gemini-3.5-flash")
+    assert isinstance(m, Gemini) and m.model == "gemini-3.5-flash"
+    assert m.retry_options.attempts >= 3
+    assert {429, 503} <= set(m.retry_options.http_status_codes)

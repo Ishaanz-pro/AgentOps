@@ -139,6 +139,7 @@ def test_sensitive_values_never_reach_logs(client, capsys):
 
 def test_redaction_helpers():
     assert redact("key AIzaSyA1234567890abcdefghijklmnop done") == "key [REDACTED] done"
+    assert redact("key AQ.Ab8Exampleexampleexample_123-xyz done") == "key [REDACTED] done"
     assert redact("Authorization: Bearer abc.def-123") == "Authorization: [REDACTED]"
     assert redact({"t": "tok-bob", "n": ["tok-dan"]}) == {"t": "[REDACTED]", "n": ["[REDACTED]"]}
 

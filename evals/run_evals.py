@@ -27,6 +27,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from agentops.agent.agent import make_gemini_model  # noqa: E402
 from agentops.agent.mock_llm import MockLlm  # noqa: E402
 from agentops.agent.runner import AgentService  # noqa: E402
 from agentops.auth import get_user  # noqa: E402
@@ -136,7 +137,7 @@ async def run(mode: str, out_dir: Path) -> int:
         set_deps(deps)
 
         if mode == "gemini":
-            model = settings.model
+            model = make_gemini_model(settings.model)
         else:
             # Worst case for injection cases: a model that fully obeys injected text.
             model = MockLlm(compromised=(case["category"] == "injection"))
