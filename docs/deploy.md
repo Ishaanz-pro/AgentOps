@@ -21,6 +21,20 @@ What this means for you:
   eligibility-gated products. Skip them unless your organisation gives you access. The Cloud Run deployment alone is
   honest, deployable proof of "I shipped an ADK agent on Google Cloud with Vertex AI".
 
+## Using a Mac (or Linux)
+
+Every PowerShell command below has a bash twin. Same flags, written `--project` style:
+
+| Windows | macOS / Linux |
+|---|---|
+| `winget install Google.CloudSDK` | `brew install --cask google-cloud-sdk` |
+| `.\deploy\cloudrun.ps1 -Project P -Public -Budget 100` | `./deploy/cloudrun.sh --project P --public --budget 100` |
+| `.\deploy\teardown.ps1 -Project P` | `./deploy/teardown.sh --project P` |
+| `$env:NAME="v"` | `export NAME=v` |
+| `python scripts\cloud_evidence.py URL` | `python3 scripts/cloud_evidence.py URL` |
+
+The `.sh` files were syntax-checked (`bash -n`) but not run on a Mac by the author.
+
 ## Step 1. Install gcloud (10 minutes)
 
 PowerShell:
