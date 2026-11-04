@@ -60,7 +60,7 @@ python -m venv .venv
 .venv/Scripts/activate            # Windows;  source .venv/bin/activate on macOS/Linux
 pip install -e ".[dev]"
 
-pytest                            # 100 tests, fully offline
+pytest                            # 102 tests, fully offline
 python evals/run_evals.py         # 21-case evaluation, offline
 
 python -m uvicorn agentops.api.main:app_factory --factory --port 8765
@@ -161,13 +161,39 @@ p95 ≈ 37 ms in-process). Injection cases run against a *compromised* mock that
 **What this does and does not prove.** The offline results validate the pipeline and the **backend security
 guarantees** (they hold even for a model that fully obeys an injection). They say **nothing about Gemini's
 answer quality**: the `MockLlm` is a deterministic stand-in. Quality numbers require `--mode gemini` with a
-real key, which has not been run.
+real key; see the live-run section below for what that produced and why it is incomplete.
+
+## Live Gemini run (2026-11-04)
+
+What happened the first time a real key was used, in order:
+
+1. **`gemini-2.5-flash` is retired** (HTTP 404 "no longer available"). The default is now `gemini-3.5-flash`, which
+   is also ADK 2.13's built-in default. The quota response labels it `gemini-3.6-flash` internally.
+2. **Core journey on live Gemini passed.** Alice's "Can ORD-1001 be refunded, and what is its delivery status?":
+   the agent called `get_order_status` (authorized: order owner), then `search_policy_documents`, answered
+   *delivered 2026-10-24, 10 days ago, eligible within the 30-day window*, and cited `POL-001 §1` and `§2`.
+   The citation verifier found nothing unretrieved. Latency: 49.6 s.
+3. **Why 49.6 s:** roughly 1 in 4 requests to the model returned `503 UNAVAILABLE` ("high demand") and ADK's
+   `Gemini` wrapper does not retry by default. Fix: `make_gemini_model()` now sets `retry_options` for
+   429/5xx (4 attempts, exponential backoff). A plain model call took 11–18 s on its own; most of the latency is
+   upstream.
+4. **Gemini embeddings calibrated.** Top-1 cosine for 10 in-scope questions: 0.702–0.792; for 8 off-topic
+   questions (weather, recipes, stocks, parental leave…): 0.514–0.584. Floor set to 0.65.
+5. **Full eval blocked by quota.** `python evals/run_evals.py --mode gemini` scored **4/21**: the first three
+   policy cases and one order case passed, then every remaining case failed with
+   `429 RESOURCE_EXHAUSTED` — `GenerateRequestsPerDayPerProjectPerModel-FreeTier`, value **20**. The 17 failures
+   are the quota, not wrong answers; `evals/results/results_gemini.jsonl` is that run, kept as-is. Fixes made in
+   response: turns now report `rate_limited` / `model_unavailable` instead of a generic error, the eval records
+   each case's error code, and `--pace N` sleeps between cases.
+
+To get a complete live eval: enable billing on the Google Cloud project behind the key (pay-as-you-go), or run
+a ~7-case subset per day on the free tier. Neither has been done yet.
 
 ## Test results
 
 ```
 $ pytest
-100 passed in 14.38s
+102 passed in 9.60s
 ```
 
 | File | Tests | Covers |
@@ -175,7 +201,7 @@ $ pytest
 | `test_tools.py` | 28 | cross-user access, enumeration, malformed args, timeout, DB down, injection flagging, confirmation gate |
 | `test_api.py` | 20 | auth, trace access control, confirm flow, validation, log redaction, fail-fast config |
 | `test_rag.py` | 16 | chunking, determinism, retrieval, relevance floor in/out of scope, index persistence |
-| `test_agent.py` | 10 | end-to-end through real ADK loop, compromised-model injection, session hijack |
+| `test_agent.py` | 12 | end-to-end through real ADK loop, compromised-model injection, session hijack |
 | `test_authz.py` | 8 | authorization rules |
 | `test_citations.py` | 6 | citation provenance checker |
 | `test_db.py` | 4 | SQLite layer |
@@ -189,8 +215,10 @@ Environment: Python 3.13.15, Windows 11, `google-adk 2.13.0`, `google-genai 2.34
 
 | Verified (ran here) | Not verified |
 |---|---|
-| Full test suite and eval suite (offline) | **Any live Gemini call**: no API key was available. The model name `gemini-3.5-flash` is ADK 2.13's built-in default, not tested by me |
-| Real ADK agent loop, tool dispatch, callbacks, session state (via `MockLlm`) | Gemini embeddings (`gemini-embedding-001`); the relevance floor is **calibrated only for the local embedder** and disabled (0.0) for Gemini |
+| Full test suite and eval suite (offline) | **The full 21-case eval on live Gemini**: blocked by the free tier's 20 requests/day/model quota (see [Live Gemini run](#live-gemini-run-2026-11-04)) |
+| Real ADK agent loop, tool dispatch, callbacks, session state (via `MockLlm`) | Any quality claim about Gemini beyond the handful of live turns described below |
+| Live `gemini-3.5-flash` through the real ADK agent: the core journey answered correctly with verified citations | — |
+| Gemini embeddings (`gemini-embedding-001`) with a relevance floor calibrated on 18 queries | — |
 | Live uvicorn server + `scripts/demo.py` over HTTP | Docker build and `docker compose up` (Docker not installed) |
 | Authorization, injection, confirmation, redaction behavior | Concurrency, load, any production deployment |
 
@@ -200,7 +228,8 @@ Environment: Python 3.13.15, Windows 11, `google-adk 2.13.0`, `google-genai 2.34
 - **Injection defences are layered, not absolute.** Marker-wrapping, regex flagging, and prompt rules are heuristics a determined attacker can evade. The load-bearing control is backend authorization, which limits blast radius but cannot stop a manipulated model from *saying* misleading things within what the user is allowed to see.
 - **A hijacked model can still *propose* a ticket** (e.g. `AUTO-ESCALATE...`). It is never created without `POST /confirm`, and the proposed text is returned to the user, but a careless human could confirm it.
 - **Citation verifier checks provenance, not truth.** A retrieved section can still be misquoted.
-- **Relevance floor is calibrated on ~12 queries** with a narrow margin (0.19 vs 0.22). It is regression-tested, not statistically validated.
+- **Relevance floors are calibrated on small samples**: ~12 queries for the local embedder (margin 0.19 vs 0.22) and 18 for Gemini embeddings (in-scope ≥ 0.70, out-of-scope ≤ 0.59, floor 0.65). Regression-tested, not statistically validated.
+- **Free-tier quota**: 20 requests/day/model. A single agent turn uses 2–3 model requests, so the live demo supports roughly 7–10 turns a day without billing.
 - **Local embedder is lexical** (hashed bag-of-words); it cannot handle true paraphrase. It exists for offline reproducibility.
 - **In-memory state.** Sessions, traces, and pending confirmations are lost on restart and not shared across replicas.
 - **No rate limiting, no per-user quotas, no TLS termination, no audit-log immutability.**
@@ -221,7 +250,7 @@ confirmation gate including wrong-user and replay attempts. Each prints the answ
 src/agentops/   config, auth, authz, db, seed_data, rag/, tools/, agent/, observability/, api/
 data/           synthetic policies (6 docs) and seed script
 evals/          dataset.jsonl, run_evals.py, results/
-tests/          100 offline tests
+tests/          102 offline tests
 scripts/demo.py three-scenario demo against a running server
 docs/           architecture.md
 ```
