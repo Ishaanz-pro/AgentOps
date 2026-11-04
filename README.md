@@ -60,7 +60,7 @@ python -m venv .venv
 .venv/Scripts/activate            # Windows;  source .venv/bin/activate on macOS/Linux
 pip install -e ".[dev]"
 
-pytest                            # 98 tests, fully offline
+pytest                            # 100 tests, fully offline
 python evals/run_evals.py         # 21-case evaluation, offline
 
 python -m uvicorn agentops.api.main:app_factory --factory --port 8765
@@ -77,6 +77,16 @@ python evals/run_evals.py --mode gemini
 ```
 
 Docker (`Dockerfile`, `docker-compose.yml`) is provided but was **not built or run** where this was authored.
+
+### Web UI
+
+Start the server (command above) and open **http://127.0.0.1:8765/**. One page, no build step: a user switcher
+(Alice, Bob, Carol, Dan), six one-click scenarios (own order, someone else's order, poisoned document, hostile
+message, ticket, out-of-scope question), and a live panel showing retrieval hits, **ALLOWED/DENIED** authorization
+decisions, flagged untrusted content, and tool calls for each answer. Tickets show a **Confirm** button. A badge
+shows whether the server is on the offline mock model or live Gemini. Model and document text is rendered with
+`textContent` (never as HTML) under a strict Content-Security-Policy. The UI has been tested over HTTP
+(`tests/test_api.py`) but I did not view it in a browser myself.
 
 ### API
 
@@ -148,13 +158,13 @@ real key, which has not been run.
 
 ```
 $ pytest
-98 passed in 8.47s
+100 passed in 14.38s
 ```
 
 | File | Tests | Covers |
 |---|---|---|
 | `test_tools.py` | 28 | cross-user access, enumeration, malformed args, timeout, DB down, injection flagging, confirmation gate |
-| `test_api.py` | 18 | auth, trace access control, confirm flow, validation, log redaction, fail-fast config |
+| `test_api.py` | 20 | auth, trace access control, confirm flow, validation, log redaction, fail-fast config |
 | `test_rag.py` | 16 | chunking, determinism, retrieval, relevance floor in/out of scope, index persistence |
 | `test_agent.py` | 10 | end-to-end through real ADK loop, compromised-model injection, session hijack |
 | `test_authz.py` | 8 | authorization rules |
@@ -202,7 +212,7 @@ confirmation gate including wrong-user and replay attempts. Each prints the answ
 src/agentops/   config, auth, authz, db, seed_data, rag/, tools/, agent/, observability/, api/
 data/           synthetic policies (6 docs) and seed script
 evals/          dataset.jsonl, run_evals.py, results/
-tests/          98 offline tests
+tests/          100 offline tests
 scripts/demo.py three-scenario demo against a running server
 docs/           architecture.md
 ```

@@ -155,3 +155,22 @@ def test_gemini_mode_without_key_fails_fast(tmp_path, policy_dir):
     with pytest.raises(RuntimeError, match="GOOGLE_API_KEY"):
         with TestClient(create_app(s)):
             pass
+
+
+def test_ui_page_is_served_with_strict_csp(client):
+    r = client.get("/")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/html")
+    csp = r.headers["content-security-policy"]
+    assert "default-src 'none'" in csp and "connect-src 'self'" in csp and "frame-ancestors 'none'" in csp
+    assert r.headers["x-content-type-options"] == "nosniff"
+    html = r.text
+    assert "Enterprise AgentOps" in html
+    # no external resources, and model/document text is never injected as HTML
+    assert "http://" not in html and "https://" not in html
+    assert "innerHTML" not in html and "document.write" not in html and "eval(" not in html
+
+
+def test_ui_does_not_embed_any_real_secret(client):
+    html = client.get("/").text
+    assert "AIza" not in html and "GOOGLE_API_KEY" not in html

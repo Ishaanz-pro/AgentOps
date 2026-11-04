@@ -11,10 +11,11 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from dataclasses import asdict
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from agentops.agent.mock_llm import MockLlm
 from agentops.agent.runner import AgentService
@@ -33,6 +34,13 @@ from agentops.tools.deps import ToolDeps, set_deps
 from agentops.tools.support_ticket import ConfirmationError, confirm_and_create
 
 log = get_logger("agentops.api")
+
+_INDEX_HTML = Path(__file__).parent / "static" / "index.html"
+# The UI is a single self-contained page: no external scripts, styles, fonts or images.
+_UI_CSP = (
+    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+    "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+)
 
 
 def _resolve_modes(settings: Settings) -> tuple[str, str]:
@@ -103,6 +111,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse(status_code=500, content={"detail": "internal server error"})
 
     # ---------------- routes ----------------
+    @app.get("/", include_in_schema=False)
+    async def ui() -> FileResponse:
+        return FileResponse(
+            _INDEX_HTML,
+            media_type="text/html; charset=utf-8",
+            headers={"Content-Security-Policy": _UI_CSP, "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"},
+        )
+
     @app.get("/health", response_model=HealthResponse)
     async def health(request: Request) -> HealthResponse:
         s = request.app.state
