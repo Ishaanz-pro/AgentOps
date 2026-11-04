@@ -1,0 +1,21 @@
+# What `gcloud run deploy --source .` uploads to Cloud Build. Anything not needed to build the image stays local.
+# SECURITY: .env holds a real API key locally and must never be uploaded.
+.git/
+.gitignore
+.venv/
+**/__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+*.db
+data/index/
+data/attachments/
+.pytest_cache/
+*.egg-info/
+tests/
+docs/
+deploy/
+.terraform/
+*.tfstate*
+.adk/

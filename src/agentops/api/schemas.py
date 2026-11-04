@@ -59,5 +59,6 @@ class HealthResponse(BaseModel):
     backend: str               # "ai-studio" | "vertex-ai" | "none"
     embeddings: str
     calendar: str              # "dryrun" | "google-calendar"
+    runtime: str               # "local" or "cloud-run:<service>/<revision>" (from Cloud Run's own K_SERVICE/K_REVISION)
     policy_chunks: int
     database: str              # "ok" | "unavailable"

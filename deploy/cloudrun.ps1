@@ -20,7 +20,10 @@ param(
 $ErrorActionPreference = "Stop"
 function Run($cmd) { Write-Host "> $cmd" -ForegroundColor Cyan; Invoke-Expression $cmd; if ($LASTEXITCODE -ne 0) { throw "failed: $cmd" } }
 
+if (-not (Get-Command gcloud -ErrorAction SilentlyContinue)) { throw "gcloud CLI not found. Install it (see docs/deploy.md step 1) and open a new terminal." }
 Run "gcloud config set project $Project"
+$billing = gcloud billing projects describe $Project --format="value(billingEnabled)"
+if ($billing -ne "True") { throw "Project $Project has no billing account linked. Cloud Run requires one even for free-tier use. Link the Free Trial billing account in the console (docs/deploy.md step 3)." }
 Run "gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com aiplatform.googleapis.com logging.googleapis.com cloudtrace.googleapis.com calendar-json.googleapis.com"
 
 $sa = "agentops-run@$Project.iam.gserviceaccount.com"

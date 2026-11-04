@@ -67,7 +67,7 @@ python -m venv .venv
 .venv/Scripts/activate            # Windows;  source .venv/bin/activate on macOS/Linux
 pip install -e ".[dev]"
 
-pytest                            # 136 tests, fully offline
+pytest                            # 137 tests, fully offline
 python evals/run_evals.py         # 25-case evaluation, offline
 
 python -m uvicorn agentops.api.main:app_factory --factory --port 8765
@@ -110,7 +110,7 @@ deployment has been run**. Step-by-step with costs and the Gemini Enterprise reg
 .\deploy\agent_engine.ps1 -Project YOUR_PROJECT                     # Vertex AI Agent Engine
 ```
 
-Terraform equivalent: `deploy/terraform/main.tf` (not applied or validated; Terraform was not installed).
+Zero-cost walkthrough (Free Trial, teardown, evidence): see `docs/deploy.md`. Terraform equivalent: `deploy/terraform/main.tf` (not applied or validated; Terraform was not installed).
 
 ### Web UI
 
@@ -241,13 +241,13 @@ a ~7-case subset per day on the free tier. Neither has been done yet.
 
 ```
 $ pytest
-136 passed in 24.13s
+137 passed
 ```
 
 | File | Tests | Covers |
 |---|---|---|
 | `test_tools.py` | 28 | cross-user access, enumeration, malformed args, timeout, DB down, injection flagging, confirmation gate |
-| `test_api.py` | 29 | auth, trace access control, confirm flow, validation, log redaction, CSP, image upload over HTTP, calendar flow, daily budget, sample route |
+| `test_api.py` | 30 | auth, trace access control, confirm flow, validation, log redaction, CSP, image upload over HTTP, calendar flow, daily budget, sample route |
 | `test_rag.py` | 16 | chunking, determinism, retrieval, relevance floor in/out of scope, index persistence |
 | `test_agent.py` | 12 | end-to-end through real ADK loop, compromised-model injection (ticket and calendar), session hijack |
 | `test_workspace.py` | 12 | calendar propose/confirm, user binding, kind crossing, time validation, Google Calendar request mapping and errors (stubbed network) |

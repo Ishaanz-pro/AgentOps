@@ -50,6 +50,22 @@ _UI_CSP = (
 )
 
 
+def _runtime_label() -> str:
+    """Where this process runs. Cloud Run sets K_SERVICE and K_REVISION itself; we only report them."""
+    import os
+
+    svc, rev = os.environ.get("K_SERVICE"), os.environ.get("K_REVISION")
+    return f"cloud-run:{svc}/{rev}" if svc else "local"
+
+
+def _runtime_label() -> str:
+    """Where this process runs. Cloud Run sets K_SERVICE and K_REVISION itself; we only report them."""
+    import os
+
+    svc, rev = os.environ.get("K_SERVICE"), os.environ.get("K_REVISION")
+    return f"cloud-run:{svc}/{rev}" if svc else "local"
+
+
 class _DailyBudget:
     """Process-local cap on chat turns per UTC day. A guardrail for a public demo, not a billing system:
     with several Cloud Run instances each instance has its own counter (max-instances=1 in the deploy script)."""
@@ -170,6 +186,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             backend=s.backend,
             embeddings=s.embeddings,
             calendar=s.deps.calendar.provider,
+            runtime=_runtime_label(),
             policy_chunks=len(s.deps.index.chunks),
             database=db,
         )

@@ -254,6 +254,13 @@ def test_health_reports_backend_and_calendar(client):
     assert h["backend"] == "none" and h["calendar"] == "dryrun"
 
 
+def test_health_reports_cloud_run_runtime(client, monkeypatch):
+    assert client.get("/health").json()["runtime"] == "local"
+    monkeypatch.setenv("K_SERVICE", "agentops")
+    monkeypatch.setenv("K_REVISION", "agentops-00007-abc")
+    assert client.get("/health").json()["runtime"] == "cloud-run:agentops/agentops-00007-abc"
+
+
 def test_sample_image_route_is_allowlisted(client):
     r = client.get("/samples/cracked_band.png")
     assert r.status_code == 200 and r.headers["content-type"] == "image/png" and r.content[:4] == b"\x89PNG"
