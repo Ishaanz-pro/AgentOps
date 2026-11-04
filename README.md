@@ -80,13 +80,22 @@ Docker (`Dockerfile`, `docker-compose.yml`) is provided but was **not built or r
 
 ### Web UI
 
-Start the server (command above) and open **http://127.0.0.1:8765/**. One page, no build step: a user switcher
-(Alice, Bob, Carol, Dan), six one-click scenarios (own order, someone else's order, poisoned document, hostile
-message, ticket, out-of-scope question), and a live panel showing retrieval hits, **ALLOWED/DENIED** authorization
-decisions, flagged untrusted content, and tool calls for each answer. Tickets show a **Confirm** button. A badge
-shows whether the server is on the offline mock model or live Gemini. Model and document text is rendered with
-`textContent` (never as HTML) under a strict Content-Security-Policy. The UI has been tested over HTTP
-(`tests/test_api.py`) but I did not view it in a browser myself.
+Start the server (command above) and open **http://127.0.0.1:8765/**. One self-contained page (no build step, no
+external requests), styled after Google's Material 3 / Gemini look:
+
+- Gemini-style home with a greeting and six scenario cards (own order, someone else's order, poisoned document,
+  hostile message, ticket, out-of-scope question).
+- A user menu to switch between Alice, Bob, Carol (support agent) and Dan (admin); switching starts a new chat.
+- A live **agent trace** panel: latency / tools / passages / denied tiles, then a timeline of retrieval hits,
+  **access granted / denied** decisions, flagged untrusted content and tool results, plus the raw trace JSON.
+- Ticket proposals show a **Confirm** card; nothing is created until you click it.
+- A badge states whether the server is on the offline mock model or live Gemini.
+- Light, dark and system themes; responsive layout (chat and trace become tabs on narrow screens);
+  keyboard accessible; honours `prefers-reduced-motion`.
+
+Model and document text is rendered with `textContent` (never as HTML) under a strict Content-Security-Policy.
+The page is checked over HTTP in `tests/test_api.py` and its script passes `node --check`, but it has not been
+exercised in an automated browser run.
 
 ### API
 
