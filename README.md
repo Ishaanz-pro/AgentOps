@@ -271,7 +271,8 @@ Environment: Python 3.13.15, Windows 11, `google-adk 2.13.0`, `google-genai 2.34
 | Live `gemini-3.5-flash` through the real ADK agent: the core journey answered correctly with verified citations | — |
 | Gemini embeddings (`gemini-embedding-001`) with a relevance floor calibrated on 18 queries | — |
 | Live uvicorn server + `scripts/demo.py` over HTTP | Docker build and `docker compose up` (Docker not installed) |
-| Photo and calendar flows in a real browser (headless Chrome, mock model) | Gemini actually *describing* a photo (needs quota; the mock cannot see images) |
+| Photo and calendar flows in a real browser (headless Chrome, mock model) | Calendar flow and the 4 new eval cases on live Gemini |
+| One live Gemini photo turn (2026-11-04, `gemini-3.5-flash`, AI Studio key): described the synthetic cracked headband correctly, proposed the ticket, backend bound the image (17 s) | More than that one turn; no accuracy claim on real product photos |
 | Agent Engine package loads and serves under ADK `api_server` locally | `adk deploy agent_engine`, Cloud Run deploy, Terraform, Gemini Enterprise registration: **never run** |
 | Calendar client request mapping and error handling against a stubbed HTTP session | A real write to a real Google Calendar |
 | Authorization, injection, confirmation, redaction behavior | Concurrency, load, any production deployment |
