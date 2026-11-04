@@ -45,8 +45,13 @@ if [[ -z "$(gcloud iam service-accounts list --filter="email:${SA}" --format='va
   gcloud iam service-accounts create agentops-run --display-name="AgentOps Cloud Run runtime"
 fi
 # Least privilege: call Vertex AI, write logs and traces. Nothing else.
+# A just-created service account can take a few seconds to be visible to IAM, so retry each binding.
 for ROLE in roles/aiplatform.user roles/logging.logWriter roles/cloudtrace.agent; do
-  gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:${SA}" --role="$ROLE" --condition=None --quiet >/dev/null
+  for ATTEMPT in 1 2 3 4 5 6; do
+    if gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:${SA}" --role="$ROLE" --condition=None --quiet >/dev/null; then break; fi
+    [[ $ATTEMPT -lt 6 ]] || { echo "Could not grant $ROLE to $SA after 6 tries." >&2; exit 1; }
+    echo "IAM has not caught up yet (attempt $ATTEMPT), waiting 10s..."; sleep 10
+  done
 done
 
 if [[ -n "$CALENDAR_ID" ]]; then CAL="AGENTOPS_CALENDAR=google,AGENTOPS_CALENDAR_ID=${CALENDAR_ID}"; else CAL="AGENTOPS_CALENDAR=dryrun"; fi
