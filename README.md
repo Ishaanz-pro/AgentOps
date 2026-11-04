@@ -2,11 +2,16 @@
 
 An enterprise employee assistant built on **Google Agent Development Kit (ADK)** and the **Gemini API**.
 It answers policy questions with RAG over internal documents, looks up orders through **authorized tools**,
-and proposes support tickets that need **explicit human confirmation**. The focus is not the chatbot; it is
+and proposes support tickets and **Google Calendar follow-ups** that need **explicit human confirmation**. It also
+accepts **photos** (multimodal): a damage photo is described by Gemini and bound to the proposed ticket by the
+backend. The focus is not the chatbot; it is
 what surrounds it: backend-enforced authorization, prompt-injection resistance, evaluation, and observability.
 
-> **Scope and honesty.** This is a portfolio project on **synthetic data**. It is not production-ready, has
-> not been deployed anywhere, and makes no Gemini Enterprise claim. See [What was and wasn't verified](#what-was-and-wasnt-verified).
+> **Scope and honesty.** This is a portfolio project on **synthetic data**. It is not production-ready. As of
+> this commit it has **not been deployed to Google Cloud** and has **not been registered in Gemini Enterprise**:
+> the deploy scripts, Terraform and Agent Engine package exist, but nobody has run them yet (see
+> [Deploying on Google Cloud](#deploying-on-google-cloud) and [What was and wasn't verified](#what-was-and-wasnt-verified)).
+> Update this note with the live URL once a deployment exists.
 
 ## The core journey
 
@@ -42,7 +47,9 @@ flowchart LR
     AG --> T1[search_policy_documents] --> IDX[(FAISS)]
     AG --> T2[get_order_status] --> AZ[authz.can_access_order] --> DB[(SQLite)]
     AG --> T3[create_support_ticket: propose only]
-    C -->|POST /confirm| API --> DB
+    AG --> T4[schedule_followup: propose only]
+    C -->|POST /confirm human click| API --> DB
+    API --> CAL[Google Calendar API]
     SVC --> OBS[trace + JSON logs + citation check]
 ```
 
@@ -60,8 +67,8 @@ python -m venv .venv
 .venv/Scripts/activate            # Windows;  source .venv/bin/activate on macOS/Linux
 pip install -e ".[dev]"
 
-pytest                            # 102 tests, fully offline
-python evals/run_evals.py         # 21-case evaluation, offline
+pytest                            # 136 tests, fully offline
+python evals/run_evals.py         # 25-case evaluation, offline
 
 python -m uvicorn agentops.api.main:app_factory --factory --port 8765
 python scripts/demo.py --base http://127.0.0.1:8765
@@ -77,6 +84,33 @@ python evals/run_evals.py --mode gemini
 ```
 
 Docker (`Dockerfile`, `docker-compose.yml`) is provided but was **not built or run** where this was authored.
+
+## New capabilities (2026-11-04)
+
+| Capability | What it does | Trust boundary |
+|---|---|---|
+| **Multimodal input** | Attach a PNG/JPEG/WebP to a chat turn. Gemini sees it; the agent describes damage in the ticket text. | Type sniffed from bytes (declared MIME must match), 4 MB cap, content-addressed by sha256, bytes never enter traces/logs, written to disk only after a human confirms the ticket. Text inside an image is treated as untrusted data. |
+| **Google Workspace (Calendar)** | `schedule_followup` proposes an event; `POST /confirm` writes it through the Calendar API (or a dry-run audit log). | Same two-phase gate as tickets: user-bound, single-use, 10-min TTL. Requester identity is stamped by the backend. The service writes to one support calendar as itself and never holds a user's OAuth token. Confirmation kinds cannot be crossed. |
+| **Keyless Vertex AI backend** | `GOOGLE_GENAI_USE_VERTEXAI=true` + project: Gemini and embeddings through the runtime service account. | `/health` reports `backend`. A stray API key is removed from the environment so traffic cannot silently leave Vertex. |
+| **Agent Engine package** | `deploy/agent_engine/employee_assistant`: the same agent, tools and RAG, deployable with `adk deploy agent_engine` and registrable in Gemini Enterprise. | Runtime user id is trusted only when `AGENTOPS_TRUST_RUNNER_USER_ID=1`. |
+| **Cloud-native logs** | JSON logs carry `severity`, `message` and `logging.googleapis.com/trace`. | Redaction unchanged. |
+| **Cost guardrail** | `AGENTOPS_DAILY_CHAT_BUDGET` caps chat turns per UTC day (HTTP 429 after). | For a public demo URL. Process-local, so Cloud Run max-instances is 1. |
+
+The compromised-model test now also makes the model try an injected calendar write: both injected proposals are
+surfaced to the human and nothing is written. Screenshots: [photo ticket](docs/screenshots/photo-ticket-proposed.png),
+[calendar follow-up](docs/screenshots/calendar-followup-proposed.png), [phone](docs/screenshots/mobile-photo-ticket.png).
+
+## Deploying on Google Cloud
+
+Scripts are written and the Agent Engine package loads under ADK's own `api_server` locally, but **no cloud
+deployment has been run**. Step-by-step with costs and the Gemini Enterprise registration: [`docs/deploy.md`](docs/deploy.md).
+
+```powershell
+.\deploy\cloudrun.ps1 -Project YOUR_PROJECT -Public -Budget 200     # Cloud Run, keyless Vertex AI
+.\deploy\agent_engine.ps1 -Project YOUR_PROJECT                     # Vertex AI Agent Engine
+```
+
+Terraform equivalent: `deploy/terraform/main.tf` (not applied or validated; Terraform was not installed).
 
 ### Web UI
 
@@ -113,8 +147,8 @@ phone layout (390 px) including the inspector sheet.
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /chat` `{message, session_id?}` | One agent turn. Needs `Authorization: Bearer <token>` |
-| `POST /confirm` `{confirmation_id}` | Human confirmation that actually creates a proposed ticket |
+| `POST /chat` `{message, session_id?, image_base64?, image_mime_type?}` | One agent turn, optionally with a photo. Needs `Authorization: Bearer <token>` |
+| `POST /confirm` `{confirmation_id}` | Human confirmation that executes a proposed ticket or calendar event |
 | `GET /trace/{request_id}` | Execution trace; owner or admin only |
 | `GET /health` | Liveness + which model/embedding mode is really running |
 
@@ -134,7 +168,9 @@ curl -s localhost:8765/chat -H "Authorization: Bearer tok-alice" -H "Content-Typ
 | Order-ID enumeration | Not-found and not-permitted return the identical error | `tools/order_status.py` | `test_denied_and_missing_are_indistinguishable` |
 | Indirect prompt injection via a poisoned document | Retrieved text wrapped in `UNTRUSTED_DOCUMENT` markers, trust-labelled, injection-like text flagged and logged; prompt says treat as data; **and the backend does not rely on the model obeying** | `tools/policy_search.py`, `agent/agent.py` | `test_injection_does_not_leak_orders_or_create_tickets` (uses a *compromised* model that obeys the injection), `INJ-01..03` |
 | Direct prompt injection | Same backend authorization | `tools/order_status.py` | `INJ-03` |
-| Model creates a ticket on its own | Tool only **proposes**; creation requires `POST /confirm` by the same user: single-use, 10-minute TTL, bound to user | `tools/support_ticket.py`, `tools/ticket_tool.py` | `test_ticket_*`, `test_confirmation_*` |
+| Model creates a ticket or calendar event on its own | Tools only **propose**; execution requires `POST /confirm` by the same user: single-use, 10-minute TTL, bound to user; ticket and calendar confirmations cannot be crossed | `tools/support_ticket.py`, `tools/ticket_tool.py`, `tools/followup_tool.py` | `test_ticket_*`, `test_confirmation_*`, `test_followup_*`, `test_confirmation_kinds_cannot_be_crossed` |
+| Malicious or mislabelled image upload | Magic-byte sniffing, declared type must match, PNG/JPEG/WebP only, 4 MB cap, bytes never traced, saved only after confirmation | `attachments.py` | `test_attachments.py`, `test_image_validation_over_http` |
+| Hijacked model writes to a user's calendar | Service writes to one designated support calendar as itself; no user OAuth token exists in the process; identity stamped by backend | `workspace.py` | `test_followup_created_only_after_confirmation_and_attributed_by_backend` |
 | Model calls a tool it shouldn't | Agent built from an explicit allowlist + `before_tool_callback` re-check | `agent/agent.py`, `tools/registry.py` | built-in |
 | Malformed / hostile tool arguments | pydantic validation (e.g. `^ORD-\d{4,6}$`), parameterized SQL | `tools/*.py`, `db.py` | `test_malformed_order_ids` (SQL-injection strings) |
 | Hung or failing backend | Per-tool timeout; DB errors mapped to a safe message; internals never returned to the model | `tools/registry.py` | `test_tool_timeout_is_enforced`, `test_database_unavailable`, `FAIL-03` |
@@ -152,14 +188,14 @@ JSON lines carrying the same IDs. Example: `scripts/demo.py` prints a trace summ
 
 ## Evaluation
 
-`evals/dataset.jsonl` has 21 cases: 5 policy, 5 order, 3 unauthorized, 3 prompt-injection, 5 failure/missing-info.
+`evals/dataset.jsonl` has 25 cases: 5 policy, 5 order, 3 unauthorized, 3 prompt-injection, 5 failure/missing-info, 3 workspace, 1 multimodal.
 Each records the **expected behavior** in prose; `evals/run_evals.py` records the **actual behavior** and evaluates
 deterministic checks (answer content, tools used, authorization decisions from the trace, no ticket in the DB,
 retrieved chunk, citation integrity). No LLM-as-judge. Output: `evals/results/results_<mode>.jsonl` and
 `summary_<mode>.md`, committed.
 
-**Latest offline run: 21/21 passed** (policy 5/5, order 5/5, unauthorized 3/3, injection 3/3, failure 5/5; p50 ≈ 26 ms,
-p95 ≈ 37 ms in-process). Injection cases run against a *compromised* mock that obeys injected text.
+**Latest offline run: 25/25 passed** (policy 5/5, order 5/5, unauthorized 3/3, injection 3/3, failure 5/5, workspace 3/3,
+multimodal 1/1; p50 ≈ 23 ms, p95 ≈ 41 ms in-process). The 4 newest cases have **not** been run on live Gemini. Injection cases run against a *compromised* mock that obeys injected text.
 
 **How we got there (the failures are the point):**
 
@@ -205,20 +241,23 @@ a ~7-case subset per day on the free tier. Neither has been done yet.
 
 ```
 $ pytest
-102 passed in 9.60s
+136 passed in 24.13s
 ```
 
 | File | Tests | Covers |
 |---|---|---|
 | `test_tools.py` | 28 | cross-user access, enumeration, malformed args, timeout, DB down, injection flagging, confirmation gate |
-| `test_api.py` | 20 | auth, trace access control, confirm flow, validation, log redaction, fail-fast config |
+| `test_api.py` | 29 | auth, trace access control, confirm flow, validation, log redaction, CSP, image upload over HTTP, calendar flow, daily budget, sample route |
 | `test_rag.py` | 16 | chunking, determinism, retrieval, relevance floor in/out of scope, index persistence |
-| `test_agent.py` | 12 | end-to-end through real ADK loop, compromised-model injection, session hijack |
+| `test_agent.py` | 12 | end-to-end through real ADK loop, compromised-model injection (ticket and calendar), session hijack |
+| `test_workspace.py` | 12 | calendar propose/confirm, user binding, kind crossing, time validation, Google Calendar request mapping and errors (stubbed network) |
+| `test_attachments.py` | 9 | magic-byte sniffing, MIME mismatch, size cap, content addressing |
 | `test_authz.py` | 8 | authorization rules |
+| `test_config.py` | 8 | API key handling, secret not in repr, keyless Vertex env |
 | `test_citations.py` | 6 | citation provenance checker |
 | `test_db.py` | 4 | SQLite layer |
-| `test_evals.py` | 2 | dataset minimums; all 21 eval cases pass |
-| `test_config.py` | 6 | API key handling, secret not in repr |
+| `test_evals.py` | 2 | dataset minimums; all 25 eval cases pass |
+| `test_agent_engine_entry.py` | 2 | deploy entry point imports and builds `root_agent`; runtime-user trust is opt-in |
 
 Environment: Python 3.13.15, Windows 11, `google-adk 2.13.0`, `google-genai 2.34.0`, `faiss-cpu 1.15.1`,
 `fastapi 0.162.0`, `pydantic 2.14.2`, `pytest 9.2.0`.
@@ -232,6 +271,9 @@ Environment: Python 3.13.15, Windows 11, `google-adk 2.13.0`, `google-genai 2.34
 | Live `gemini-3.5-flash` through the real ADK agent: the core journey answered correctly with verified citations | — |
 | Gemini embeddings (`gemini-embedding-001`) with a relevance floor calibrated on 18 queries | — |
 | Live uvicorn server + `scripts/demo.py` over HTTP | Docker build and `docker compose up` (Docker not installed) |
+| Photo and calendar flows in a real browser (headless Chrome, mock model) | Gemini actually *describing* a photo (needs quota; the mock cannot see images) |
+| Agent Engine package loads and serves under ADK `api_server` locally | `adk deploy agent_engine`, Cloud Run deploy, Terraform, Gemini Enterprise registration: **never run** |
+| Calendar client request mapping and error handling against a stubbed HTTP session | A real write to a real Google Calendar |
 | Authorization, injection, confirmation, redaction behavior | Concurrency, load, any production deployment |
 
 ## Limitations (security and otherwise)
@@ -243,7 +285,9 @@ Environment: Python 3.13.15, Windows 11, `google-adk 2.13.0`, `google-genai 2.34
 - **Relevance floors are calibrated on small samples**: ~12 queries for the local embedder (margin 0.19 vs 0.22) and 18 for Gemini embeddings (in-scope ≥ 0.70, out-of-scope ≤ 0.59, floor 0.65). Regression-tested, not statistically validated.
 - **Free-tier quota**: 20 requests/day/model. A single agent turn uses 2–3 model requests, so the live demo supports roughly 7–10 turns a day without billing.
 - **Local embedder is lexical** (hashed bag-of-words); it cannot handle true paraphrase. It exists for offline reproducibility.
-- **In-memory state.** Sessions, traces, and pending confirmations are lost on restart and not shared across replicas.
+- **In-memory state.** Sessions, traces, and pending confirmations are lost on restart and not shared across replicas. Cloud Run is therefore pinned to one instance. A real deployment needs Firestore or Redis for confirmations and Agent Engine sessions.
+- **Agent Engine runtime has no HTTP layer of ours**, so it trusts the runtime-provided user id (opt-in). Mapping Gemini Enterprise identities to demo principals is a placeholder, not an IdP integration.
+- **Images are not scanned** for malware or sensitive content beyond type, size and the model's own handling.
 - **No rate limiting, no per-user quotas, no TLS termination, no audit-log immutability.**
 - **Synthetic "today" is fixed** (2026-11-03) so evals are reproducible.
 - **Small corpus**: 6 documents, 30 chunks; FAISS flat index is exact search, not an approximate/scale design.
@@ -259,10 +303,11 @@ confirmation gate including wrong-user and replay attempts. Each prints the answ
 ## Layout
 
 ```
-src/agentops/   config, auth, authz, db, seed_data, rag/, tools/, agent/, observability/, api/
-data/           synthetic policies (6 docs) and seed script
-evals/          dataset.jsonl, run_evals.py, results/
-tests/          102 offline tests
-scripts/demo.py three-scenario demo against a running server
-docs/           architecture.md
+src/agentops/   config, auth, authz, db, attachments, workspace, seed_data, rag/, tools/, agent/, observability/, api/
+data/           synthetic policies (6 docs), sample image, seed script
+deploy/         cloudrun.ps1, agent_engine.ps1, agent_engine/ (ADK package), terraform/
+evals/          dataset.jsonl, run_evals.py, fixtures.py, results/
+tests/          136 offline tests
+scripts/demo.py demo against a running server
+docs/           architecture.md, deploy.md, blog-security-model.md
 ```

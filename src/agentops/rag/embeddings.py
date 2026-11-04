@@ -89,10 +89,14 @@ class GeminiEmbedder:
     # tested in evals, not statistically validated.
     min_score = 0.65
 
-    def __init__(self, api_key: str, model: str = "gemini-embedding-001", dim: int = 768):
+    def __init__(self, api_key: str | None = None, model: str = "gemini-embedding-001", dim: int = 768,
+                 vertex: tuple[str, str] | None = None):
         from google import genai  # imported lazily so offline paths never need it
 
-        self._client = genai.Client(api_key=api_key)
+        if vertex:  # (project, location): keyless, uses Application Default Credentials
+            self._client = genai.Client(vertexai=True, project=vertex[0], location=vertex[1])
+        else:
+            self._client = genai.Client(api_key=api_key)
         self._model = model
         self.dim = dim
 
@@ -116,9 +120,11 @@ class GeminiEmbedder:
         return self._embed([text], "RETRIEVAL_QUERY")[0]
 
 
-def make_embedder(provider: str, api_key: str | None) -> Embedder:
+def make_embedder(provider: str, api_key: str | None, vertex: tuple[str, str] | None = None) -> Embedder:
     if provider == "gemini":
+        if vertex:
+            return GeminiEmbedder(vertex=vertex)
         if not api_key:
-            raise ValueError("AGENTOPS_EMBEDDINGS=gemini requires GOOGLE_API_KEY")
+            raise ValueError("AGENTOPS_EMBEDDINGS=gemini requires GOOGLE_API_KEY or Vertex AI")
         return GeminiEmbedder(api_key)
     return LocalHashEmbedder()

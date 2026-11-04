@@ -25,6 +25,7 @@ def settings(tmp_path, policy_dir) -> Settings:
         AGENTOPS_DB_PATH=str(tmp_path / "api.db"),
         AGENTOPS_POLICY_DIR=str(policy_dir),
         AGENTOPS_INDEX_DIR=str(tmp_path / "index"),
+        AGENTOPS_ATTACHMENTS_DIR=str(tmp_path / "attachments"),
         GOOGLE_API_KEY=None,
     )
 
@@ -178,3 +179,96 @@ def test_ui_page_is_served_with_strict_csp(client):
 def test_ui_does_not_embed_any_real_secret(client):
     html = client.get("/").text
     assert "AIza" not in html and "GOOGLE_API_KEY" not in html
+
+
+# ---------------- multimodal: image attachments ----------------
+
+def _png_b64() -> str:
+    import base64
+
+    from fixtures import cracked_band_png
+
+    return base64.b64encode(cracked_band_png()).decode()
+
+
+def test_image_ticket_journey_over_http(client, settings):
+    body = client.post("/chat", json={
+        "message": "Please raise a ticket: my headphones from ORD-1001 arrived with a cracked band, photo attached",
+        "image_base64": _png_b64(), "image_mime_type": "image/png",
+    }, headers=ALICE).json()
+    assert body["status"] == "ok"
+    pc = body["pending_confirmation"]
+    assert pc["kind"] == "ticket" and pc["attachment"]["mime_type"] == "image/png"
+    assert "photo" in body["answer"].lower()
+    trace = client.get(f"/trace/{body['request_id']}", headers=ALICE).json()
+    img = [s for s in trace["steps"] if s["name"] == "image_received"]
+    assert img and img[0]["detail"]["sha256"] == pc["attachment"]["sha256"]
+    assert "data" not in img[0]["detail"]  # bytes never enter the trace
+    assert not (settings.attachments_dir).exists()  # nothing on disk before confirmation
+
+    ok = client.post("/confirm", json={"confirmation_id": pc["confirmation_id"]}, headers=ALICE).json()
+    assert ok["kind"] == "ticket" and ok["attachment_sha256"] == pc["attachment"]["sha256"]
+    saved = list(settings.attachments_dir.iterdir())
+    assert len(saved) == 1 and saved[0].name == pc["attachment"]["sha256"] + ".png"
+    t = list_tickets(settings.db_path)
+    assert len(t) == 1 and t[0].attachment_sha256 == pc["attachment"]["sha256"]
+
+
+@pytest.mark.parametrize("payload, status", [
+    ({"image_base64": _png_b64(), "image_mime_type": "image/jpeg"}, 422),      # lies about the type
+    ({"image_base64": "PHN2Zz48L3N2Zz4=", "image_mime_type": "image/png"}, 422),  # <svg></svg>
+    ({"image_base64": _png_b64()}, 422),                                        # mime missing
+    ({"image_base64": _png_b64(), "image_mime_type": "image/svg+xml"}, 422),    # type not allowed
+])
+def test_image_validation_over_http(client, payload, status):
+    r = client.post("/chat", json={"message": "look at this", **payload}, headers=ALICE)
+    assert r.status_code == status
+
+
+# ---------------- Google Workspace: calendar follow-up ----------------
+
+def test_followup_journey_over_http(client, settings):
+    from agentops.db import list_calendar_events
+
+    body = client.post("/chat", json={
+        "message": "Schedule a follow-up call about ORD-1001 on 2026-11-05 at 10:30",
+    }, headers=ALICE).json()
+    pc = body["pending_confirmation"]
+    assert pc["kind"] == "calendar_event" and pc["start_at"] == "2026-11-05T10:30:00+05:30"
+    assert "NOT scheduled" in body["answer"]
+    assert list_calendar_events(settings.db_path) == []
+
+    assert client.post("/confirm", json={"confirmation_id": pc["confirmation_id"]}, headers=BOB).status_code == 404
+    ok = client.post("/confirm", json={"confirmation_id": pc["confirmation_id"]}, headers=ALICE)
+    assert ok.status_code == 200
+    ev = ok.json()
+    assert ev["kind"] == "calendar_event" and ev["provider"] == "dryrun" and ev["event_id"].startswith("evt-dryrun-")
+    assert ev["title"].startswith("Follow-up") and ev["ticket_id"] is None
+    rows = list_calendar_events(settings.db_path)
+    assert len(rows) == 1 and rows[0].created_by == "u-alice"
+    assert client.post("/confirm", json={"confirmation_id": pc["confirmation_id"]}, headers=ALICE).status_code == 404
+
+
+def test_health_reports_backend_and_calendar(client):
+    h = client.get("/health").json()
+    assert h["backend"] == "none" and h["calendar"] == "dryrun"
+
+
+def test_sample_image_route_is_allowlisted(client):
+    r = client.get("/samples/cracked_band.png")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png" and r.content[:4] == b"\x89PNG"
+    assert client.get("/samples/..%2F..%2Fpyproject.toml").status_code == 404
+    assert client.get("/samples/other.png").status_code == 404
+
+
+def test_daily_chat_budget_guardrail(tmp_path, policy_dir):
+    s = Settings(AGENTOPS_MODE="mock", AGENTOPS_EMBEDDINGS="local", AGENTOPS_DB_PATH=str(tmp_path / "b.db"),
+                 AGENTOPS_POLICY_DIR=str(policy_dir), AGENTOPS_INDEX_DIR=str(tmp_path / "i"), GOOGLE_API_KEY=None,
+                 AGENTOPS_DAILY_CHAT_BUDGET=2)
+    with TestClient(create_app(s)) as c:
+        assert c.post("/chat", json={"message": "hi"}, headers=ALICE).status_code == 200
+        assert c.post("/chat", json={"message": "hi"}, headers=BOB).status_code == 200
+        r = c.post("/chat", json={"message": "hi"}, headers=ALICE)
+        assert r.status_code == 429 and "budget" in r.json()["detail"]
+        assert c.get("/health").status_code == 200  # health is never budgeted
+    deps_mod._deps = None

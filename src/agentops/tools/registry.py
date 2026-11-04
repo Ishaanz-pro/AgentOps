@@ -13,6 +13,7 @@ Tools return a uniform dict so the model only ever sees
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from typing import Any, Awaitable, Callable
 
@@ -28,10 +29,16 @@ log = get_logger("agentops.tools")
 # Explicit allowlist. The agent is built only from these; before_tool_callback
 # re-checks at call time as defence in depth.
 ALLOWED_TOOLS: frozenset[str] = frozenset(
-    {"search_policy_documents", "get_order_status", "create_support_ticket"}
+    {"search_policy_documents", "get_order_status", "create_support_ticket", "schedule_followup"}
 )
 
 PRINCIPAL_STATE_KEY = "principal_user_id"
+
+# Agent Engine / Gemini Enterprise deployment: there is no FastAPI layer to write the
+# principal into session state. The runtime's authenticated caller supplies user_id,
+# and IAM on the Agent Engine resource is the authentication boundary. The fallback
+# is opt-in by environment so a local misconfiguration can never widen trust silently.
+TRUST_RUNNER_USER_ENV = "AGENTOPS_TRUST_RUNNER_USER_ID"
 
 
 def ok(data: dict[str, Any]) -> dict[str, Any]:
@@ -59,6 +66,8 @@ def resolve_principal(tool_context: Any) -> Principal:
     """
     state = getattr(tool_context, "state", None)
     user_id = state.get(PRINCIPAL_STATE_KEY) if state is not None else None
+    if not user_id and os.environ.get(TRUST_RUNNER_USER_ENV) == "1":
+        user_id = getattr(tool_context, "user_id", None)
     principal = get_user(user_id) if user_id else None
     if principal is None:
         raise ToolError("unauthenticated", "No authenticated user is bound to this session.")

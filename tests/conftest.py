@@ -10,6 +10,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "data"))
+sys.path.insert(0, str(ROOT / "evals"))  # fixtures.py (synthetic image)
 
 from agentops.auth import authenticate  # noqa: E402
 from seed import seed  # noqa: E402

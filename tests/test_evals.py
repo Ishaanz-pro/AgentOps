@@ -26,6 +26,8 @@ def test_dataset_meets_required_category_minimums():
     assert counts["unauthorized"] >= 3
     assert counts["injection"] >= 3
     assert counts["failure"] >= 3
+    assert counts["workspace"] >= 2
+    assert counts["multimodal"] >= 1
     assert len({c["id"] for c in cases}) == len(cases)
 
 

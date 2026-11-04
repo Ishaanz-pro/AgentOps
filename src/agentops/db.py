@@ -43,6 +43,21 @@ class Ticket:
     issue: str
     created_at: str
     status: str
+    attachment_sha256: str | None = None   # photo evidence, stored by content hash
+
+
+@dataclass(frozen=True)
+class CalendarEvent:
+    """Audit record of a confirmed calendar write (written for dry-run AND real Google Calendar)."""
+    event_id: str
+    created_by: str
+    title: str
+    start_at: str
+    end_at: str
+    notes: str
+    provider: str              # dryrun | google-calendar
+    external_link: str | None
+    created_at: str
 
 
 _SCHEMA = """
@@ -63,9 +78,30 @@ CREATE TABLE IF NOT EXISTS tickets (
     created_by TEXT NOT NULL,
     issue TEXT NOT NULL,
     created_at TEXT NOT NULL,
-    status TEXT NOT NULL
+    status TEXT NOT NULL,
+    attachment_sha256 TEXT
+);
+CREATE TABLE IF NOT EXISTS calendar_events (
+    event_id TEXT PRIMARY KEY,
+    created_by TEXT NOT NULL,
+    title TEXT NOT NULL,
+    start_at TEXT NOT NULL,
+    end_at TEXT NOT NULL,
+    notes TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    external_link TEXT,
+    created_at TEXT NOT NULL
 );
 """
+
+
+def migrate(db_path: Path | str) -> None:
+    """Bring an existing database up to the current schema (idempotent, additive only)."""
+    with connect(db_path) as conn:
+        conn.executescript(_SCHEMA)
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(tickets)")}
+        if "attachment_sha256" not in cols:
+            conn.execute("ALTER TABLE tickets ADD COLUMN attachment_sha256 TEXT")
 
 
 @contextmanager
@@ -121,20 +157,44 @@ def get_order(db_path: Path | str, order_id: str) -> Order | None:
     return Order(**dict(row))
 
 
-def create_ticket(db_path: Path | str, created_by: str, issue: str) -> Ticket:
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def create_ticket(db_path: Path | str, created_by: str, issue: str, attachment_sha256: str | None = None) -> Ticket:
     ticket = Ticket(
         ticket_id=f"TCK-{uuid.uuid4().hex[:8].upper()}",
         created_by=created_by,
         issue=issue,
-        created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        created_at=_now(),
         status="open",
+        attachment_sha256=attachment_sha256,
     )
     with connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO tickets VALUES (?,?,?,?,?)",
-            (ticket.ticket_id, ticket.created_by, ticket.issue, ticket.created_at, ticket.status),
+            "INSERT INTO tickets (ticket_id, created_by, issue, created_at, status, attachment_sha256)"
+            " VALUES (?,?,?,?,?,?)",
+            (ticket.ticket_id, ticket.created_by, ticket.issue, ticket.created_at, ticket.status,
+             ticket.attachment_sha256),
         )
     return ticket
+
+
+def record_calendar_event(db_path: Path | str, ev: CalendarEvent) -> None:
+    with connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO calendar_events VALUES (?,?,?,?,?,?,?,?,?)",
+            (ev.event_id, ev.created_by, ev.title, ev.start_at, ev.end_at, ev.notes, ev.provider,
+             ev.external_link, ev.created_at),
+        )
+
+
+def list_calendar_events(db_path: Path | str, created_by: str | None = None) -> list[CalendarEvent]:
+    with connect(db_path) as conn:
+        q, args = ("SELECT * FROM calendar_events WHERE created_by = ?", (created_by,)) if created_by else (
+            "SELECT * FROM calendar_events", ())
+        rows = conn.execute(q, args).fetchall()
+    return [CalendarEvent(**dict(r)) for r in rows]
 
 
 def list_tickets(db_path: Path | str, created_by: str | None = None) -> list[Ticket]:

@@ -13,6 +13,7 @@ dependencies = [
     "faiss-cpu>=1.9",
     "numpy>=1.26",
     "python-dotenv>=1.0",
+    "requests>=2.31",
 ]
 
 [project.optional-dependencies]

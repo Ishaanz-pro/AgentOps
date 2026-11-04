@@ -20,6 +20,7 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
+from agentops import attachments
 from agentops.agent.agent import build_agent
 from agentops.agent.citations import unverified_citations
 from agentops.auth import Principal
@@ -40,6 +41,7 @@ class ChatResult:
     answer: str
     sources: list[str] = field(default_factory=list)
     pending_confirmation: dict[str, Any] | None = None
+    pending_confirmations: list[dict[str, Any]] = field(default_factory=list)
     latency_ms: float | None = None
     error: str | None = None
     unverified_citations: list[str] = field(default_factory=list)
@@ -88,18 +90,24 @@ class AgentService:
         )
         return sid
 
-    async def chat(self, principal: Principal, message: str, session_id: str | None = None) -> ChatResult:
+    async def chat(self, principal: Principal, message: str, session_id: str | None = None,
+                   attachment: attachments.Attachment | None = None) -> ChatResult:
         trace = start_trace(principal.user_id, str(principal.role))
-        log.info("request_received", extra={"message_chars": len(message), "role": str(principal.role)})
+        log.info("request_received", extra={"message_chars": len(message), "role": str(principal.role),
+                                            "has_image": attachment is not None})
+        if attachment:
+            # Metadata only: image bytes never enter the trace or the logs.
+            trace.add_step("agent", "image_received", **attachment.meta())
         sid = ""
         answer = ""
         retrieved: list[str] = []
         retrieved_texts: list[str] = []
         error: str | None = None
+        token = attachments.set_current(attachment)
         try:
             sid = await self._ensure_session(principal, session_id)
             answer, retrieved, retrieved_texts = await asyncio.wait_for(
-                self._run(principal, sid, message, trace), self.turn_timeout
+                self._run(principal, sid, message, trace, attachment), self.turn_timeout
             )
         except asyncio.TimeoutError:
             error = f"turn exceeded {self.turn_timeout}s"
@@ -107,6 +115,8 @@ class AgentService:
         except Exception as exc:  # noqa: BLE001 - surface a safe message, keep detail in trace/logs
             error, answer = classify_model_error(exc)
             log.exception("agent_turn_failed", extra={"error": error})
+        finally:
+            attachments.reset_current(token)
 
         # Provenance check: the answer may only cite policy sections retrieved in this turn.
         unverified = unverified_citations(answer, retrieved, retrieved_texts) if not error else []
@@ -126,12 +136,17 @@ class AgentService:
         return ChatResult(
             request_id=trace.request_id, trace_id=trace.trace_id, session_id=sid,
             status=trace.status, answer=answer, sources=cited,
-            pending_confirmation=trace.pending_confirmation, latency_ms=trace.latency_ms, error=error,
+            pending_confirmation=trace.pending_confirmation, pending_confirmations=list(trace.pending_confirmations),
+            latency_ms=trace.latency_ms, error=error,
             unverified_citations=unverified,
         )
 
-    async def _run(self, principal: Principal, sid: str, message: str, trace: Trace) -> tuple[str, list[str], list[str]]:
-        content = types.Content(role="user", parts=[types.Part(text=message)])
+    async def _run(self, principal: Principal, sid: str, message: str, trace: Trace,
+                   attachment: attachments.Attachment | None = None) -> tuple[str, list[str], list[str]]:
+        parts = [types.Part(text=message)]
+        if attachment:
+            parts.append(types.Part.from_bytes(data=attachment.data, mime_type=attachment.mime_type))
+        content = types.Content(role="user", parts=parts)
         final_text = ""
         retrieved: list[str] = []
         texts: list[str] = []

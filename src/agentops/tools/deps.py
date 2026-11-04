@@ -12,6 +12,7 @@ from pathlib import Path
 
 from agentops.rag.index import PolicyIndex
 from agentops.tools.support_ticket import ConfirmationStore
+from agentops.workspace import CalendarClient, DryRunCalendar
 
 # The synthetic dataset is anchored to this date so "days since delivery"
 # is stable for evals regardless of when the demo runs.
@@ -25,6 +26,8 @@ class ToolDeps:
     tool_timeout: float = 5.0
     today: date = SYNTHETIC_TODAY
     confirmations: ConfirmationStore = field(default_factory=ConfirmationStore)
+    calendar: CalendarClient = field(default_factory=DryRunCalendar)
+    attachments_dir: Path = Path("data/attachments")
 
 
 _deps: ToolDeps | None = None

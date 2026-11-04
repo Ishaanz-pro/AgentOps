@@ -7,3 +7,8 @@ __pycache__/
 data/index/
 logs/
 *.egg-info/
+.terraform/
+*.tfstate*
+deploy/agent_engine/employee_assistant/.state/
+data/attachments/
+.adk/

@@ -53,6 +53,11 @@ def can_create_ticket(principal: Principal) -> Decision:
     return Decision(True, f"role {principal.role} may create tickets")
 
 
+def can_schedule_followup(principal: Principal) -> Decision:
+    """Calendar follow-ups go on the shared support calendar and are always attributed to the requester."""
+    return Decision(True, f"role {principal.role} may schedule a follow-up")
+
+
 def can_search_policies(principal: Principal) -> Decision:
     """Policy documents are internal but visible to every authenticated employee."""
     return Decision(True, "authenticated user")

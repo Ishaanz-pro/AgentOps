@@ -23,13 +23,17 @@ COPY scripts ./scripts
 # Writable state (SQLite DB, FAISS index) lives on a volume, not in the image
 RUN mkdir -p /app/var && chown -R app:app /app/var
 ENV AGENTOPS_DB_PATH=/app/var/agentops.db \
-    AGENTOPS_INDEX_DIR=/app/var/index
+    AGENTOPS_INDEX_DIR=/app/var/index \
+    AGENTOPS_ATTACHMENTS_DIR=/app/var/attachments
 
 USER app
+# Cloud Run injects PORT (8080); local runs default to 8000.
+ENV PORT=8000
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
-  CMD python -c "import urllib.request,sys; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)" || exit 1
+  CMD python -c "import os,urllib.request; urllib.request.urlopen(f'http://127.0.0.1:{os.environ.get(\"PORT\",\"8000\")}/health', timeout=3)" || exit 1
 
-# The API key is NEVER baked into the image: pass GOOGLE_API_KEY at runtime.
-CMD ["uvicorn", "agentops.api.main:app_factory", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+# Credentials are NEVER baked into the image. Locally: pass GOOGLE_API_KEY at runtime.
+# On Cloud Run: GOOGLE_GENAI_USE_VERTEXAI=true + GOOGLE_CLOUD_PROJECT, auth via the service account.
+CMD ["sh", "-c", "uvicorn agentops.api.main:app_factory --factory --host 0.0.0.0 --port ${PORT}"]

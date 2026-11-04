@@ -1,0 +1,13 @@
+{
+  "display_name": "AgentOps Employee Assistant",
+  "description": "Policy + order assistant with backend-enforced authorization and human-confirmed side effects (ADK).",
+  "extra_packages": ["../../../src/agentops", "../../../data"],
+  "env_vars": {
+    "AGENTOPS_TRUST_RUNNER_USER_ID": "1",
+    "AGENTOPS_MODE": "gemini",
+    "AGENTOPS_EMBEDDINGS": "auto",
+    "AGENTOPS_MODEL": "gemini-3.5-flash",
+    "GOOGLE_GENAI_USE_VERTEXAI": "true",
+    "GOOGLE_CLOUD_LOCATION": "global"
+  }
+}

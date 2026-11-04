@@ -41,10 +41,21 @@ class Trace:
     steps: list[Step] = field(default_factory=list)
     retrieval_sources: list[str] = field(default_factory=list)
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
-    pending_confirmation: dict[str, Any] | None = None
+    # Every side effect the model proposed this turn. A compromised model may propose several;
+    # none is lost, and each needs its own human confirmation.
+    pending_confirmations: list[dict[str, Any]] = field(default_factory=list)
     latency_ms: float | None = None
     error: str | None = None
     _t0: float = field(default_factory=time.perf_counter, repr=False)
+
+    @property
+    def pending_confirmation(self) -> dict[str, Any] | None:
+        return self.pending_confirmations[0] if self.pending_confirmations else None
+
+    def propose(self, confirmation: dict[str, Any]) -> None:
+        self.pending_confirmations.append(confirmation)
+        self.add_step("agent", "side_effect_proposed", effect=confirmation.get("kind"),
+                      confirmation_id=confirmation.get("confirmation_id"))
 
     def add_step(self, kind: str, name: str, **detail: Any) -> Step:
         step = Step(kind=kind, name=name, started_at=time.perf_counter(), duration_ms=0.0, detail=detail)
@@ -75,6 +86,7 @@ class Trace:
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d.pop("_t0", None)
+        d["pending_confirmation"] = self.pending_confirmation
         for s in d["steps"]:
             s.pop("started_at", None)
         return d

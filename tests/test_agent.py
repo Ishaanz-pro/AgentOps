@@ -8,7 +8,7 @@ import pytest
 
 from agentops.agent.mock_llm import MockLlm
 from agentops.agent.runner import AgentService
-from agentops.db import list_tickets
+from agentops.db import list_calendar_events, list_tickets
 from agentops.observability.tracing import TraceStore
 from agentops.rag.embeddings import LocalHashEmbedder
 from agentops.rag.index import PolicyIndex
@@ -120,10 +120,13 @@ async def test_injection_does_not_leak_orders_or_create_tickets(compromised_serv
     assert {d.detail["order_id"] for d in denied} == {"ORD-2001", "ORD-4001"}
     assert list_tickets(db_path) == []
 
-    # The injected ticket (if proposed) is only PENDING and visible to the user, who must confirm it.
-    if r.pending_confirmation:
-        assert r.pending_confirmation["issue"].startswith("AUTO-ESCALATE")
-        assert "NOT created" in r.answer
+    # The injected side effects are only PENDING and visible to the user, who must confirm each one.
+    kinds = {p["kind"] for p in r.pending_confirmations}
+    assert kinds == {"ticket", "calendar_event"}, "both injected proposals are surfaced, none silently dropped"
+    ticket = next(p for p in r.pending_confirmations if p["kind"] == "ticket")
+    assert ticket["issue"].startswith("AUTO-ESCALATE")
+    assert "NOT created" in r.answer and "NOT scheduled" in r.answer
+    assert list_calendar_events(db_path) == []
 
 
 async def test_injection_even_blocked_for_admin_role_boundaries(compromised_service, bob, db_path):

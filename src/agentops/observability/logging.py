@@ -48,17 +48,35 @@ class RedactionFilter(logging.Filter):
 
 
 class JsonFormatter(logging.Formatter):
+    """One JSON object per line.
+
+    The field names double as Cloud Logging's structured-log contract: on Cloud
+    Run, ``severity``, ``message`` and ``logging.googleapis.com/trace`` are
+    parsed natively, so every line is filterable by request in Logs Explorer and
+    correlated with Cloud Trace without any agent or library.
+    """
+
+    def __init__(self, gcp_project: str | None = None):
+        super().__init__()
+        import os
+
+        self._project = gcp_project or os.environ.get("GOOGLE_CLOUD_PROJECT")
+
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
             "ts": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
             "level": record.levelname,
+            "severity": record.levelname,
             "logger": record.name,
             "event": record.getMessage(),
+            "message": record.getMessage(),
         }
         trace = get_trace()
         if trace:
             payload["request_id"] = trace.request_id
             payload["trace_id"] = trace.trace_id
+            if self._project:
+                payload["logging.googleapis.com/trace"] = f"projects/{self._project}/traces/{trace.trace_id[4:]}"
         for key, val in record.__dict__.items():
             if key not in _STD_ATTRS:
                 payload[key] = val
